@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Hex Lands</title>
+<meta name="description" content="A turn-based hex tile laying game. Draw a tile, drag it onto the board, build a landscape together." />
+<meta name="theme-color" content="#101820" />
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <canvas id="board" aria-label="Game board"></canvas>
+
+  <!-- In-game heads up display -->
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <span class="logo">HEX<span>LANDS</span></span>
+      <span class="version" id="hudVersion"></span>
+    </div>
+    <div class="hud-center">
+      <span class="turn-chip" id="turnChip"></span>
+      <span class="turn-text" id="turnText">Player 1</span>
+    </div>
+    <div class="hud-right">
+      <span class="deck-count"><b id="deckCount">0</b> left</span>
+      <button id="menuBtn" class="ghost-btn" title="Back to title">Menu</button>
+    </div>
+  </div>
+
+  <div id="hint" class="hint hidden"></div>
+
+  <!-- Title screen -->
+  <div id="title" class="screen">
+    <div class="panel">
+      <h1 class="logo big">HEX<span>LANDS</span></h1>
+      <p class="tagline">Draw a tile. Drag it onto the board. Grow the land together.</p>
+
+      <div class="tile-legend" id="legend"></div>
+
+      <h2 class="label">Players</h2>
+      <div class="player-picker" id="playerPicker"></div>
+
+      <button id="startBtn" class="primary-btn">Start Game</button>
+
+      <p class="howto">
+        The first tile can go anywhere. After that, every tile must touch a tile
+        already on the board. Drop it somewhere invalid and it returns to the deck.
+      </p>
+      <p class="version" id="titleVersion"></p>
+    </div>
+  </div>
+
+  <!-- Game over screen -->
+  <div id="gameover" class="screen hidden">
+    <div class="panel">
+      <h1 class="logo">The deck is empty</h1>
+      <p class="tagline">Every tile has found its place.</p>
+      <div class="tile-legend" id="finalCounts"></div>
+      <button id="againBtn" class="primary-btn">Play Again</button>
+      <button id="titleBtn" class="ghost-btn wide">Title Screen</button>
+      <p class="version" id="overVersion"></p>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
