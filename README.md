@@ -4,37 +4,47 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.3.0**
+**Current version: v0.4.0**
 
 ## How to play
 
-Choose how many players are at the table (1–6), then each turn has two steps.
+Choose how many players are at the table (1–6). A turn is **one tile, which you
+must lay, and one animal move, which you may take — in either order**. Your deck
+and your seven cards are both on screen the whole time, so you can read any card
+whenever you like, including on someone else's turn.
 
-### 1. Lay a tile (required)
+### Lay a tile (required)
 
-The top tile is drawn automatically and appears above the deck. Press and drag
-it onto the board.
+The top tile is drawn automatically and sits beside the deck. Press and drag it
+onto the board.
 
 - The **first** tile of the game can go anywhere.
 - Every tile after that must touch a tile already on the board. Valid spots are
   outlined while you drag.
-- Release somewhere invalid and the tile returns above the deck — you never
-  lose your turn to a misdrop.
+- Release somewhere invalid and the tile returns to your hand — you never lose
+  your turn to a misdrop.
 
-### 2. Move one animal (optional)
+### Move one animal (optional)
 
-After the tile is down, the deck is replaced by your card rail. Every player has
-their own set of seven cards, each with a token in their colour. Pick a card, or
-tap one of your animals already on the board. You may do **one** of:
+Pick a card from the rail, or tap one of your animals already on the board. You
+may do **one** of:
 
-- **Send it out** — if the land somewhere matches the card's placement layout,
+- **Send it out** — if the land somewhere matches the card's go out layout,
   those hexes light up. Drag the token from its card onto one, or tap. *Scores.*
-- **Call it home** — if the land where it stands matches the card's return
+- **Call it home** — if the land where it stands matches the card's come home
   layout, the *Return to card* button lights up. *Scores.*
 - **Walk it** — step it to any one connected tile. Scores nothing, but it is how
   an animal reaches the layout it needs.
 
-Then press *End Turn*. The game ends when the deck runs out; highest score wins.
+### Ending the turn
+
+The turn ends by itself once both steps are spent. If you would rather keep your
+animal move, lay your tile and press *End Turn*. You cannot end a turn without
+laying a tile, so *End Turn* stays locked until the tile is down — but you are
+free to move your animal first and lay the tile afterwards, which is often how
+you set up a layout before someone else takes the hex you want.
+
+The game ends when the deck runs out; highest score wins.
 
 Pan the board by dragging the background. Zoom with the scroll wheel or a
 two-finger pinch.

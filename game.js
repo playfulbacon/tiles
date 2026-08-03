@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -335,7 +335,10 @@ const ctx = canvas.getContext('2d');
 
 const state = {
   mode: 'title',        // title | playing | gameover
-  phase: 'tile',        // tile: must lay a tile | token: may move one animal
+  // A turn is one required tile and one optional animal move, in either
+  // order. The turn ends once the tile is down and the animal step is
+  // spent or waived.
+  turn: { tileLaid: false, animalMoved: false },
   players: 2,
   current: 0,
   deck: [],
@@ -356,16 +359,17 @@ const state = {
 
 let W = 0, H = 0, DPR = 1;
 const HEX_SIZE = 54;         // world size of a board hex
-const DECK_SIZE = 40;        // screen size of the deck / held tile
+const DECK_SIZE = 26;        // the face down stack
+const HAND_TILE = 34;        // the tile drawn for this turn
 
 function deckAnchor() {
-  const bottom = H - 22 - safeBottom();
-  return { x: W / 2, y: bottom - DECK_SIZE * SQRT3 / 2 };
+  const l = handLayout();
+  return { x: 38, y: l.rowY + l.rowH / 2 };
 }
 
 function heldHome() {
-  const d = deckAnchor();
-  return { x: d.x, y: d.y - DECK_SIZE * SQRT3 - 34 };
+  const l = handLayout();
+  return { x: 38 + DECK_SIZE + HAND_TILE + 16, y: l.rowY + l.rowH / 2 };
 }
 
 // Measured with a probe element, because custom properties hand back the
@@ -407,7 +411,7 @@ function startGame(players) {
   state.lastPlaced = null;
   state.placedCount = { water: 0, rock: 0, grass: 0, dirt: 0 };
   state.camera = { x: 0, y: 0, scale: 1 };
-  state.phase = 'tile';
+  state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
   state.tokenDrag = null;
   flashes.length = 0;
@@ -472,16 +476,29 @@ function placeTile(q, r) {
   state.placedCount[held.type]++;
   state.lastPlaced = key(q, r);
   state.held = null;
-  // The tile is laid; now the player may move one animal.
-  state.phase = 'token';
+  state.turn.tileLaid = true;
+  // New land can open or close animal moves, so recheck the cards.
+  refreshReady();
+  refreshSelection();
+  syncHud();
+  if (state.turn.animalMoved) endTurn();
+  else showHint('Move an animal, or end your turn', 2400);
+}
+
+// Called after the animal step. The turn only ends once the tile is down.
+function spendAnimalMove() {
+  state.turn.animalMoved = true;
   state.sel = null;
   refreshReady();
-  syncHud();
-  showHint('Move one animal, or end your turn', 2600);
+  if (state.turn.tileLaid) endTurn();
+  else {
+    syncHud();
+    showHint('Now lay your tile', 2400);
+  }
 }
 
 function endTurn() {
-  state.phase = 'tile';
+  state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
   state.tokenDrag = null;
   state.current = (state.current + 1) % state.players;
@@ -603,8 +620,7 @@ function doPlaceToken(animal, q, r) {
   state.tokenAt.set(key(q, r), token);
   score(state.current, ANIMALS[animal].place.points);
   flashScore('+' + ANIMALS[animal].place.points, q, r);
-  state.sel = null;
-  endTurn();
+  spendAnimalMove();
 }
 
 function doMoveToken(animal, q, r) {
@@ -613,8 +629,7 @@ function doMoveToken(animal, q, r) {
   token.at = { q, r };
   token.movedAt = performance.now();
   state.tokenAt.set(key(q, r), token);
-  state.sel = null;
-  endTurn();
+  spendAnimalMove();
 }
 
 function doReturnToken(animal) {
@@ -625,8 +640,7 @@ function doReturnToken(animal) {
   token.movedAt = performance.now();
   score(state.current, ANIMALS[animal].ret.points);
   flashScore('+' + ANIMALS[animal].ret.points, q, r);
-  state.sel = null;
-  endTurn();
+  spendAnimalMove();
 }
 
 // Short lived score popups floating off the board.
@@ -807,8 +821,7 @@ function drawTargets(now) {
 // The bottom band is where the deck lives and where drops are refused, so it
 // gets a dimming tray to separate the hand from the land behind it.
 function trayTop() {
-  if (state.mode === 'playing' && state.phase === 'token') return railLayout().top;
-  return H - DECK_SIZE * 4.8 - safeBottom();
+  return handLayout().top;
 }
 
 function drawTray() {
@@ -845,13 +858,10 @@ function drawDeck(now) {
   // Count on the top of the deck.
   ctx.save();
   ctx.fillStyle = 'rgba(234,241,246,0.92)';
-  ctx.font = '700 15px "Avenir Next", "Segoe UI", system-ui, sans-serif';
+  ctx.font = '700 13px "Avenir Next", "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(String(state.deck.length), d.x, d.y - stack * 3.5 + 1);
-  ctx.font = '600 8.5px "Avenir Next", "Segoe UI", system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(147,166,181,0.9)';
-  ctx.fillText('DECK', d.x, d.y - stack * 3.5 + 16);
+  ctx.fillText(String(state.deck.length), d.x, d.y - stack * 3);
   ctx.restore();
   void now;
 }
@@ -891,7 +901,7 @@ function drawHeld(now) {
   const drawIn = Math.min(1, (now - held.bornAt) / 300);
   const appear = easeOutBack(drawIn);
   const bob = held.dragging ? 0 : Math.sin(now / 700) * 2.5;
-  const size = DECK_SIZE * (held.dragging ? 1.12 : 0.86 + 0.14 * appear);
+  const size = held.dragging ? HAND_TILE * 1.35 : HAND_TILE * (0.86 + 0.14 * appear);
 
   // Ghost preview snapped to the hovered hex while dragging.
   if (held.dragging && state.hoverKey) {
@@ -908,15 +918,6 @@ function drawHeld(now) {
   drawSprite(held.type, held.variant, held.x, held.y + bob, size);
   ctx.restore();
 
-  if (!held.dragging && !held.returning) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(234,241,246,0.55)';
-    ctx.font = '700 10px "Avenir Next", "Segoe UI", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.letterSpacing = '1px';
-    ctx.fillText(TYPES[held.type].name.toUpperCase(), held.x, held.y + bob + size * SQRT3 / 2 + 15);
-    ctx.restore();
-  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -937,21 +938,27 @@ function hitTest(x, y) {
   return null;
 }
 
-function railLayout() {
+/* The hand: a row holding the deck, this turn's tile and the turn buttons,
+ * with the card rail beneath it. Both are on screen the whole turn, so the
+ * tile and the animal can be played in either order and the cards can be
+ * read at any moment. */
+function handLayout() {
   const n = ANIMAL_ORDER.length;
   const gap = 5;
   const pad = 8;
   const cw = Math.min(64, (W - pad * 2 - gap * (n - 1)) / n);
-  const ch = 72;
-  const railY = H - safeBottom() - 10 - ch;
-  const actionH = 34;
-  const actionY = railY - 8 - actionH;
+  const ch = 66;
+  const railY = H - safeBottom() - 8 - ch;
+  const rowH = 74;
+  const rowY = railY - 6 - rowH;
   const detailH = 92;
-  const detailY = actionY - 8 - detailH;
+  const detailY = rowY - 8 - detailH;
   return {
-    n, gap, cw, ch, railY, actionY, actionH, detailY, detailH,
+    n, gap, cw, ch, railY, rowY, rowH, detailY, detailH,
     startX: (W - (cw * n + gap * (n - 1))) / 2,
-    top: (state.sel ? detailY : actionY) - 12,
+    btnW: Math.min(150, W * 0.42),
+    btnH: 32,
+    top: (state.sel ? detailY : rowY) - 12,
   };
 }
 
@@ -989,7 +996,7 @@ function drawTokensOnBoard(now) {
 
 function drawTokenTargets(now) {
   const sel = state.sel;
-  if (!sel || state.phase !== 'token') return;
+  if (!sel || state.turn.animalMoved) return;
   const size = HEX_SIZE * state.camera.scale;
   const pulse = 0.5 + 0.5 * Math.sin(now / 300);
   const hoverK = tokenDropKey();
@@ -1157,28 +1164,56 @@ function drawButton(id, label, x, y, w, h, kind) {
   if (enabled) pushHit(id, x, y, w, h);
 }
 
-function drawActionBar(lay) {
+function drawTurnRow(now, lay) {
   const sel = state.sel;
-  const y = lay.actionY, h = lay.actionH;
-  const endW = 96;
-  const endX = W - 10 - endW;
+  const cy = lay.rowY + lay.rowH / 2;
+  const bx = W - 10 - lay.btnW;
 
-  if (sel && sel.onBoard) {
-    const label = 'Return to card  +' + ANIMALS[sel.animal].ret.points;
-    drawButton('return', label, 10, y, 150, h, sel.canReturn ? 'go' : 'off');
-  } else if (sel) {
-    drawButton('placehint', 'Drag onto a marked hex', 10, y, 172, h, 'off');
+  // Deck and the tile drawn for this turn, on the left.
+  drawDeck(now);
+  if (!state.turn.tileLaid) {
+    drawHeld(now);
+    pushHit('tile', 4, lay.rowY, heldHome().x + HAND_TILE + 8, lay.rowH);
   } else {
-    ctx.font = font('600 12px');
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(147,166,181,0.9)';
-    ctx.fillText('Pick an animal card, or end your turn', 14, y + h / 2 + 4);
+    // Tile spent: a quiet marker where it sat.
+    const h = heldHome();
+    traceHex(ctx, h.x, h.y, HAND_TILE * 0.86);
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(126,225,150,0.5)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = font('800 15px');
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(126,225,150,0.85)';
+    ctx.fillText('\u2713', h.x, h.y + 5);
   }
-  drawButton('endturn', 'End Turn', endX, y, endW, h, 'ghost');
+
+  // What the turn is still waiting on, in the gap between tile and buttons.
+  const textX = heldHome().x + HAND_TILE + 18;
+  const textW = bx - textX - 10;
+  if (textW > 70) {
+    ctx.textAlign = 'left';
+    ctx.font = font('600 11.5px');
+    ctx.fillStyle = 'rgba(147,166,181,0.92)';
+    const msg = !state.turn.tileLaid
+      ? 'Play the tile'
+      : (state.turn.animalMoved ? 'Turn done' : 'Animal optional');
+    wrapText(msg, textX, cy - 3, textW, 13);
+  }
+
+  // Return sits above End Turn; End Turn only unlocks once the tile is down.
+  if (sel && sel.onBoard && !state.turn.animalMoved) {
+    drawButton('return', 'Return to card  +' + ANIMALS[sel.animal].ret.points,
+      bx, lay.rowY + 3, lay.btnW, lay.btnH, sel.canReturn ? 'go' : 'off');
+  }
+  drawButton('endturn', state.turn.tileLaid ? 'End Turn' : 'Lay a tile first',
+    bx, lay.rowY + lay.rowH - lay.btnH - 3, lay.btnW, lay.btnH,
+    state.turn.tileLaid ? 'ghost' : 'off');
 }
 
-function drawRail(now) {
-  const lay = railLayout();
+function drawHand(now) {
+  const lay = handLayout();
 
   // Tray behind the whole hand area.
   const g = ctx.createLinearGradient(0, lay.top, 0, H);
@@ -1190,7 +1225,7 @@ function drawRail(now) {
   pushHit('tray', 0, lay.top, W, H - lay.top);
 
   if (state.sel) drawCardDetail(now, state.sel.animal, lay);
-  drawActionBar(lay);
+  drawTurnRow(now, lay);
 
   const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
   ANIMAL_ORDER.forEach((animal, i) => {
@@ -1218,7 +1253,7 @@ function drawRail(now) {
     const cx = x + lay.cw / 2;
     if (token.at) {
       // Piece is out on the land: show an empty slot on the card.
-      traceHex(ctx, cx, y + 28, 15);
+      traceHex(ctx, cx, y + 26, 14);
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.fill();
       ctx.setLineDash([3, 3]);
@@ -1226,22 +1261,22 @@ function drawRail(now) {
       ctx.strokeStyle = 'rgba(160,235,255,0.55)';
       ctx.stroke();
       ctx.setLineDash([]);
-      drawGlyph(ctx, animal, cx, y + 28, 20, 'rgba(200,220,235,0.30)');
+      drawGlyph(ctx, animal, cx, y + 26, 19, 'rgba(200,220,235,0.30)');
     } else {
-      drawToken(ctx, animal, cx, y + 28, 32, color, { shadow: false });
+      drawToken(ctx, animal, cx, y + 26, 30, color, { shadow: false });
     }
 
     ctx.textAlign = 'center';
     ctx.font = font('700 9px');
     ctx.fillStyle = 'rgba(234,241,246,0.85)';
-    ctx.fillText(ANIMALS[animal].name.toUpperCase(), cx, y + 55);
+    ctx.fillText(ANIMALS[animal].name.toUpperCase(), cx, y + 50);
 
     // Points, with the currently reachable side lit up.
     const a = ANIMALS[animal];
-    const ready = state.ready[animal];
+    const ready = state.ready[animal] && !state.turn.animalMoved;
     ctx.font = font('700 9px');
     ctx.fillStyle = ready ? '#7ee196' : 'rgba(147,166,181,0.75)';
-    ctx.fillText(token.at ? 'HOME +' + a.ret.points : 'OUT +' + a.place.points, cx, y + 67);
+    ctx.fillText(token.at ? 'HOME +' + a.ret.points : 'OUT +' + a.place.points, cx, y + 61);
 
     pushHit('card', x, y, lay.cw, lay.ch, animal);
   });
@@ -1266,14 +1301,8 @@ function render(now) {
     drawFlashes(now);
   }
   if (state.mode === 'playing') {
-    if (state.phase === 'tile') {
-      drawTray();
-      drawDeck(now);
-      drawHeld(now);
-    } else {
-      drawRail(now);
-      drawDraggedToken(now);
-    }
+    drawHand(now);
+    drawDraggedToken(now);
   }
   requestAnimationFrame(render);
 }
@@ -1289,8 +1318,7 @@ let pinch = null;
 function pointInHeld(x, y) {
   const held = state.held;
   if (!held) return false;
-  const size = DECK_SIZE * 1.25;
-  return Math.hypot(x - held.x, y - held.y) <= size;
+  return Math.hypot(x - held.x, y - held.y) <= HAND_TILE * 1.3;
 }
 
 function pointInDeck(x, y) {
@@ -1317,25 +1345,11 @@ canvas.addEventListener('pointerdown', (e) => {
   if (hit) {
     press.hit = hit;
     if (hit.id === 'card') beginCardPress(hit.data, e);
+    else if (hit.id === 'tile') beginTilePress(e);
     return;
   }
 
-  if (state.phase === 'tile') {
-    const held = state.held;
-    if (held && !held.dragging && (pointInHeld(e.clientX, e.clientY) || pointInDeck(e.clientX, e.clientY))) {
-      held.returning = null;
-      held.dragging = true;
-      held.pointerId = e.pointerId;
-      // Grab from the tile centre so the tile sits under the finger.
-      held.grabDX = 0;
-      held.grabDY = pointInDeck(e.clientX, e.clientY) ? -DECK_SIZE * 0.5 : 0;
-      held.x = e.clientX + held.grabDX;
-      held.y = e.clientY + held.grabDY;
-      updateHover();
-      hideHint();
-      return;
-    }
-  } else if (e.clientY < trayTop()) {
+  if (e.clientY < trayTop() && !state.turn.animalMoved) {
     // Picking up one of your own animals already out on the land.
     const h = hexAtScreen(e.clientX, e.clientY);
     const tk = state.tokenAt.get(key(h.q, h.r));
@@ -1350,10 +1364,25 @@ canvas.addEventListener('pointerdown', (e) => {
   panning = { id: e.pointerId, x: e.clientX, y: e.clientY };
 });
 
+function beginTilePress(e) {
+  const held = state.held;
+  if (!held || held.dragging || state.turn.tileLaid) return;
+  held.returning = null;
+  held.dragging = true;
+  held.pointerId = e.pointerId;
+  // Grab from the tile centre so the tile sits under the finger.
+  held.grabDX = 0;
+  held.grabDY = pointInDeck(e.clientX, e.clientY) ? -HAND_TILE * 0.7 : 0;
+  held.x = e.clientX + held.grabDX;
+  held.y = e.clientY + held.grabDY;
+  updateHover();
+  hideHint();
+}
+
 function beginCardPress(animal, e) {
   selectAnimal(animal);
   const token = myToken(animal);
-  if (!token.at) {
+  if (!token.at && !state.turn.animalMoved) {
     state.tokenDrag = { animal, token, from: 'card', x: e.clientX, y: e.clientY };
   }
   hideHint();
@@ -1373,6 +1402,7 @@ function resolveTokenDrop(tap) {
   const sel = state.sel;
   state.tokenDrag = null;
   if (!sel || tap) return;          // a tap just selects the card
+  if (state.turn.animalMoved) { showHint('One animal a turn'); return; }
 
   if (d.y > trayTop()) {
     if (d.from === 'board' && sel.canReturn) doReturnToken(sel.animal);
@@ -1393,7 +1423,7 @@ function resolveTokenDrop(tap) {
 
 function tapBoard(e) {
   const sel = state.sel;
-  if (!sel || e.clientY > trayTop()) return;
+  if (!sel || e.clientY > trayTop() || state.turn.animalMoved) return;
   const h = hexAtScreen(e.clientX, e.clientY);
   const k = key(h.q, h.r);
   if (sel.spots.has(k)) {
@@ -1408,9 +1438,10 @@ function fireButton(hit, e) {
   const still = hitTest(e.clientX, e.clientY);
   if (!still || still.id !== hit.id) return;
   if (hit.id === 'endturn') {
+    if (!state.turn.tileLaid) { showHint('You must lay your tile before ending the turn'); return; }
     hideHint();
     endTurn();
-  } else if (hit.id === 'return' && state.sel && state.sel.canReturn) {
+  } else if (hit.id === 'return' && state.sel && state.sel.canReturn && !state.turn.animalMoved) {
     doReturnToken(state.sel.animal);
   }
 }
@@ -1472,7 +1503,7 @@ function endPointer(e) {
     state.hoverKey = null;
   } else if (tap && press.hit) {
     fireButton(press.hit, e);
-  } else if (tap && state.mode === 'playing' && state.phase === 'token') {
+  } else if (tap && state.mode === 'playing' && !state.turn.animalMoved) {
     tapBoard(e);
   }
 
@@ -1559,6 +1590,7 @@ let hintTimer = null;
 
 function showHint(text, ms = 2200) {
   hintEl.textContent = text;
+  hintEl.style.bottom = (H - trayTop() + 12) + 'px';
   hintEl.classList.remove('hidden');
   clearTimeout(hintTimer);
   hintTimer = setTimeout(() => hintEl.classList.add('hidden'), ms);
@@ -1579,7 +1611,12 @@ function syncHud() {
   const pts = state.scores[state.current] || 0;
   document.getElementById('turnText').textContent = who + ' \u00b7 ' + pts + ' pts';
   const step = document.getElementById('phaseText');
-  if (step) step.textContent = state.phase === 'tile' ? 'Lay a tile' : 'Move an animal';
+  if (step) {
+    const t = state.turn;
+    step.textContent = !t.tileLaid
+      ? (t.animalMoved ? 'Lay your tile' : 'Lay a tile')
+      : 'Animal optional';
+  }
 }
 
 function buildPlayerPicker() {
@@ -1722,10 +1759,11 @@ document.getElementById('menuBtn').addEventListener('click', showTitle);
 // Exposed for debugging and automated smoke tests.
 window.__state = state;
 window.__version = VERSION;
-window.__lay = railLayout;
+window.__lay = handLayout;
 window.__debug = {
   placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
+  recomputeValid, spendAnimalMove,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
 

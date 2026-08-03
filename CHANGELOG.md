@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0 — either order, and the cards always in view
+
+- A turn is still one required tile and one optional animal move, but they can
+  now be taken in **either order**. Moving an animal first no longer forfeits
+  the tile, so you can set a layout up before the hex you want is taken.
+- The turn ends by itself once both steps are spent. End Turn stays locked
+  until the tile is down.
+- The deck, the tile drawn for this turn and the card rail now share one hand
+  along the bottom, so **your cards can be read at any moment** rather than
+  only during the animal step.
+- The hand row shows the deck, this turn's tile (a green tick once it is laid),
+  what the turn is waiting on, and the Return and End Turn buttons.
+- Cards stay readable once the animal move is spent; only the actions are
+  withheld.
+- Dropped the turn-step readout from the HUD now that the hand carries it.
+
 ## v0.3.0 — the ladder
 
 - Animals are grouped into early (worm, frog, fish), mid (spider, loon) and

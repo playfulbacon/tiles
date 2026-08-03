@@ -107,7 +107,7 @@ body { touch-action: none; user-select: none; -webkit-user-select: none; }
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(210px + var(--safe-b));
+  bottom: 210px;   /* replaced at runtime to clear the hand */
   padding: 7px 16px;
   border-radius: 999px;
   background: rgba(16, 24, 32, 0.78);
@@ -229,24 +229,12 @@ body { touch-action: none; user-select: none; -webkit-user-select: none; }
 }
 .primary-btn:active { transform: translateY(1px); }
 
-@media (max-width: 360px) {
-  .phase-text { display: none; }
-}
-
 @media (max-width: 380px) {
   .logo.big { font-size: 28px; }
   .panel { padding: 22px 18px 18px; }
 }
 
 /* ---------- Animals and scores ---------- */
-
-.phase-text {
-  font-size: 11.5px;
-  color: var(--muted);
-  border-left: 1px solid var(--line);
-  padding-left: 9px;
-  margin-left: 3px;
-}
 
 .animal-row {
   display: flex;
