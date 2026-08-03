@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Hex Lands</title>
-<meta name="description" content="A turn-based hex tile laying game. Draw a tile, drag it onto the board, build a landscape together." />
+<meta name="description" content="A turn-based hex tile laying game. Lay the land, then send your animals out into it." />
 <meta name="theme-color" content="#101820" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
@@ -15,12 +15,12 @@
   <!-- In-game heads up display -->
   <div id="hud" class="hidden">
     <div class="hud-left">
-      <span class="logo">HEX<span>LANDS</span></span>
       <span class="version" id="hudVersion"></span>
     </div>
     <div class="hud-center">
       <span class="turn-chip" id="turnChip"></span>
       <span class="turn-text" id="turnText">Player 1</span>
+      <span class="phase-text" id="phaseText">Lay a tile</span>
     </div>
     <div class="hud-right">
       <span class="deck-count"><b id="deckCount">0</b> left</span>
@@ -34,9 +34,12 @@
   <div id="title" class="screen">
     <div class="panel">
       <h1 class="logo big">HEX<span>LANDS</span></h1>
-      <p class="tagline">Draw a tile. Drag it onto the board. Grow the land together.</p>
+      <p class="tagline">Lay the land tile by tile, then send your animals out to live in it.</p>
 
       <div class="tile-legend" id="legend"></div>
+
+      <h2 class="label">Animals</h2>
+      <div class="animal-row" id="animalRow"></div>
 
       <h2 class="label">Players</h2>
       <div class="player-picker" id="playerPicker"></div>
@@ -44,8 +47,11 @@
       <button id="startBtn" class="primary-btn">Start Game</button>
 
       <p class="howto">
-        The first tile can go anywhere. After that, every tile must touch a tile
-        already on the board. Drop it somewhere invalid and it returns to the deck.
+        <b>Lay a tile.</b> The first can go anywhere; after that every tile must
+        touch the land already on the board.<br />
+        <b>Then move one animal.</b> Each card shows the layout needed to send
+        that animal out onto the land, and the layout needed to call it home.
+        Both score. Otherwise walk an animal one tile, and wait.
       </p>
       <p class="version" id="titleVersion"></p>
     </div>
@@ -56,6 +62,7 @@
     <div class="panel">
       <h1 class="logo">The deck is empty</h1>
       <p class="tagline">Every tile has found its place.</p>
+      <div class="scoreboard" id="scoreboard"></div>
       <div class="tile-legend" id="finalCounts"></div>
       <button id="againBtn" class="primary-btn">Play Again</button>
       <button id="titleBtn" class="ghost-btn wide">Title Screen</button>
@@ -63,6 +70,7 @@
     </div>
   </div>
 
+  <script src="animals.js"></script>
   <script src="game.js"></script>
 </body>
 </html>

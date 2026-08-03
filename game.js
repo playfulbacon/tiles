@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -335,16 +335,23 @@ const ctx = canvas.getContext('2d');
 
 const state = {
   mode: 'title',        // title | playing | gameover
+  phase: 'tile',        // tile: must lay a tile | token: may move one animal
   players: 2,
   current: 0,
   deck: [],
   board: new Map(),     // "q,r" -> { q, r, type, variant, owner, placedAt }
-  held: null,           // { type, variant, x, y, dragging, homeX, homeY, ... }
+  held: null,           // the tile drawn for this turn
   valid: new Set(),
   camera: { x: 0, y: 0, scale: 1 },
   hoverKey: null,
   placedCount: { water: 0, rock: 0, grass: 0, dirt: 0 },
   lastPlaced: null,
+  tokens: new Map(),    // "player:animal" -> { player, animal, at }
+  tokenAt: new Map(),   // "q,r" -> token
+  scores: [],
+  sel: null,            // { animal, onBoard, spots:Set, canReturn }
+  ready: {},            // animal -> is its next action available right now
+  tokenDrag: null,      // { animal, x, y, from }
 };
 
 let W = 0, H = 0, DPR = 1;
@@ -400,6 +407,12 @@ function startGame(players) {
   state.lastPlaced = null;
   state.placedCount = { water: 0, rock: 0, grass: 0, dirt: 0 };
   state.camera = { x: 0, y: 0, scale: 1 };
+  state.phase = 'tile';
+  state.sel = null;
+  state.tokenDrag = null;
+  flashes.length = 0;
+  initTokens();
+  refreshReady();
   drawTile();
   syncHud();
 }
@@ -459,17 +472,164 @@ function placeTile(q, r) {
   state.placedCount[held.type]++;
   state.lastPlaced = key(q, r);
   state.held = null;
+  // The tile is laid; now the player may move one animal.
+  state.phase = 'token';
+  state.sel = null;
+  refreshReady();
+  syncHud();
+  showHint('Move one animal, or end your turn', 2600);
+}
+
+function endTurn() {
+  state.phase = 'tile';
+  state.sel = null;
+  state.tokenDrag = null;
   state.current = (state.current + 1) % state.players;
-  drawTile();
+  if (!state.deck.length) endGame();
+  else drawTile();
 }
 
 function endGame() {
   state.mode = 'gameover';
   state.held = null;
+  state.sel = null;
+  state.tokenDrag = null;
   showFinalCounts();
+  showScoreboard();
   document.getElementById('gameover').classList.remove('hidden');
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('hint').classList.add('hidden');
+}
+
+/* ------------------------------------------------------------------ *
+ * Animal tokens
+ * ------------------------------------------------------------------ */
+
+const tokenKey = (player, animal) => player + ':' + animal;
+
+function initTokens() {
+  state.tokens = new Map();
+  state.tokenAt = new Map();
+  state.scores = new Array(state.players).fill(0);
+  for (let p = 0; p < state.players; p++) {
+    for (const animal of ANIMAL_ORDER) {
+      state.tokens.set(tokenKey(p, animal), {
+        player: p, animal, at: null, movedAt: 0,
+      });
+    }
+  }
+}
+
+function myToken(animal) {
+  return state.tokens.get(tokenKey(state.current, animal));
+}
+
+// One cell of a card pattern, tested against the board as it stands.
+function cellSatisfied(q, r, req) {
+  if (req.tile) {
+    const tile = state.board.get(key(q, r));
+    return !!tile && (req.tile === 'any' || tile.type === req.tile);
+  }
+  if (req.token) {
+    const tk = state.tokenAt.get(key(q, r));
+    return !!tk && tk.animal === req.token;
+  }
+  return false;
+}
+
+// Every hex where this animal could be placed from its card right now.
+function placementSpots(animal) {
+  const spots = new Set();
+  const cells = ANIMALS[animal].place.cells;
+  for (const k of state.board.keys()) {
+    if (state.tokenAt.has(k)) continue;
+    const [q, r] = k.split(',').map(Number);
+    if (matchPattern(q, r, cells, cellSatisfied)) spots.add(k);
+  }
+  return spots;
+}
+
+// Neighbouring tiles a token may step onto: laid land, nobody standing there.
+function moveSpots(token) {
+  const spots = new Set();
+  if (!token.at) return spots;
+  for (const [dq, dr] of DIRS) {
+    const k = key(token.at.q + dq, token.at.r + dr);
+    if (state.board.has(k) && !state.tokenAt.has(k)) spots.add(k);
+  }
+  return spots;
+}
+
+function canReturn(token) {
+  if (!token.at) return false;
+  return !!matchPattern(token.at.q, token.at.r, ANIMALS[token.animal].ret.cells, cellSatisfied);
+}
+
+function refreshReady() {
+  state.ready = {};
+  for (const animal of ANIMAL_ORDER) {
+    const token = myToken(animal);
+    state.ready[animal] = token.at ? canReturn(token) : placementSpots(animal).size > 0;
+  }
+}
+
+function selectAnimal(animal) {
+  const token = myToken(animal);
+  state.sel = {
+    animal,
+    onBoard: !!token.at,
+    spots: token.at ? moveSpots(token) : placementSpots(animal),
+    canReturn: canReturn(token),
+  };
+}
+
+function refreshSelection() {
+  if (state.sel) selectAnimal(state.sel.animal);
+}
+
+function score(player, points) {
+  state.scores[player] += points;
+  syncHud();
+}
+
+function doPlaceToken(animal, q, r) {
+  const token = myToken(animal);
+  token.at = { q, r };
+  token.movedAt = performance.now();
+  state.tokenAt.set(key(q, r), token);
+  score(state.current, ANIMALS[animal].place.points);
+  flashScore('+' + ANIMALS[animal].place.points, q, r);
+  state.sel = null;
+  endTurn();
+}
+
+function doMoveToken(animal, q, r) {
+  const token = myToken(animal);
+  state.tokenAt.delete(key(token.at.q, token.at.r));
+  token.at = { q, r };
+  token.movedAt = performance.now();
+  state.tokenAt.set(key(q, r), token);
+  state.sel = null;
+  endTurn();
+}
+
+function doReturnToken(animal) {
+  const token = myToken(animal);
+  const { q, r } = token.at;
+  state.tokenAt.delete(key(q, r));
+  token.at = null;
+  token.movedAt = performance.now();
+  score(state.current, ANIMALS[animal].ret.points);
+  flashScore('+' + ANIMALS[animal].ret.points, q, r);
+  state.sel = null;
+  endTurn();
+}
+
+// Short lived score popups floating off the board.
+const flashes = [];
+function flashScore(text, q, r) {
+  const p = hexToPixel(q, r, HEX_SIZE);
+  flashes.push({ text, wx: p.x, wy: p.y, born: performance.now() });
 }
 
 /* ------------------------------------------------------------------ *
@@ -643,6 +803,7 @@ function drawTargets(now) {
 // The bottom band is where the deck lives and where drops are refused, so it
 // gets a dimming tray to separate the hand from the land behind it.
 function trayTop() {
+  if (state.mode === 'playing' && state.phase === 'token') return railLayout().top;
   return H - DECK_SIZE * 4.8 - safeBottom();
 }
 
@@ -754,16 +915,341 @@ function drawHeld(now) {
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * Animal tokens, card rail and pattern diagrams
+ * ------------------------------------------------------------------ */
+
+const FONT = '"Avenir Next", "Segoe UI", system-ui, sans-serif';
+const font = (spec) => spec + ' ' + FONT;
+
+// Rebuilt every frame so pointer hit testing always matches what is drawn.
+let hits = [];
+function pushHit(id, x, y, w, h, data) { hits.push({ id, x, y, w, h, data }); }
+function hitTest(x, y) {
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const a = hits[i];
+    if (x >= a.x && x <= a.x + a.w && y >= a.y && y <= a.y + a.h) return a;
+  }
+  return null;
+}
+
+function railLayout() {
+  const n = ANIMAL_ORDER.length;
+  const gap = 5;
+  const pad = 8;
+  const cw = Math.min(64, (W - pad * 2 - gap * (n - 1)) / n);
+  const ch = 72;
+  const railY = H - safeBottom() - 10 - ch;
+  const actionH = 34;
+  const actionY = railY - 8 - actionH;
+  const detailH = 92;
+  const detailY = actionY - 8 - detailH;
+  return {
+    n, gap, cw, ch, railY, actionY, actionH, detailY, detailH,
+    startX: (W - (cw * n + gap * (n - 1))) / 2,
+    top: (state.sel ? detailY : actionY) - 12,
+  };
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawTokensOnBoard(now) {
+  const size = HEX_SIZE * state.camera.scale;
+  for (const token of state.tokenAt.values()) {
+    if (state.tokenDrag && state.tokenDrag.token === token) continue;
+    const p = hexToPixel(token.at.q, token.at.r, HEX_SIZE);
+    const s = worldToScreen(p.x, p.y);
+    if (s.x < -size || s.x > W + size || s.y < -size || s.y > H + size) continue;
+
+    const age = (now - token.movedAt) / 320;
+    const hop = age < 1 ? Math.sin(Math.min(age, 1) * Math.PI) * size * 0.16 : 0;
+    const selected = state.sel && state.sel.animal === token.animal &&
+      token.player === state.current;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 240);
+    const ring = selected
+      ? (state.sel.canReturn ? `rgba(126,225,150,${0.55 + pulse * 0.45})`
+        : `rgba(160,235,255,${0.5 + pulse * 0.5})`)
+      : null;
+    drawToken(ctx, token.animal, s.x, s.y - size * 0.06 - hop, size * 0.62,
+      PLAYER_COLORS[token.player % PLAYER_COLORS.length], { ring });
+  }
+}
+
+function drawTokenTargets(now) {
+  const sel = state.sel;
+  if (!sel || state.phase !== 'token') return;
+  const size = HEX_SIZE * state.camera.scale;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+  const hoverK = tokenDropKey();
+
+  ctx.save();
+  ctx.setLineDash([size * 0.2, size * 0.15]);
+  for (const k of sel.spots) {
+    const [q, r] = k.split(',').map(Number);
+    const p = hexToPixel(q, r, HEX_SIZE);
+    const s = worldToScreen(p.x, p.y);
+    if (s.x < -size || s.x > W + size || s.y < -size || s.y > H + size) continue;
+    const hot = hoverK === k;
+    const tint = sel.onBoard ? '160,235,255' : '126,225,150';
+    ctx.strokeStyle = `rgba(${tint},${hot ? 0.95 : 0.34 + pulse * 0.16})`;
+    ctx.lineWidth = hot ? Math.max(3, size * 0.09) : Math.max(2, size * 0.05);
+    traceHex(ctx, s.x, s.y, size * (hot ? 0.96 : 0.88));
+    ctx.stroke();
+    if (hot) {
+      ctx.setLineDash([]);
+      ctx.fillStyle = `rgba(${tint},0.14)`;
+      ctx.fill();
+      ctx.setLineDash([size * 0.2, size * 0.15]);
+    }
+  }
+  ctx.restore();
+}
+
+function drawFlashes(now) {
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const f = flashes[i];
+    const t = (now - f.born) / 1200;
+    if (t >= 1) { flashes.splice(i, 1); continue; }
+    const s = worldToScreen(f.wx, f.wy);
+    ctx.save();
+    ctx.globalAlpha = 1 - t * t;
+    ctx.font = font('800 22px');
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(6,12,18,0.8)';
+    ctx.strokeText(f.text, s.x, s.y - 20 - t * 42);
+    ctx.fillStyle = '#7ee196';
+    ctx.fillText(f.text, s.x, s.y - 20 - t * 42);
+    ctx.restore();
+  }
+}
+
+/* One card's requirement diagram: the little hex cluster with the animal
+ * standing on the anchor cell. */
+function drawPatternDiagram(cx, cy, cells, s, color, animal) {
+  const ext = patternExtent(cells);
+  for (const [dq, dr, req] of cells) {
+    const x = cx + s * 1.5 * dq - s * ext.cx;
+    const y = cy + s * SQRT3 * (dr + dq / 2) - s * ext.cy;
+    traceHex(ctx, x, y, s * 0.95);
+    if (req.tile) {
+      ctx.fillStyle = TYPES[req.tile].base;
+      ctx.fill();
+      ctx.strokeStyle = TYPES[req.tile].ink;
+    } else {
+      ctx.fillStyle = '#26333f';
+      ctx.fill();
+      ctx.strokeStyle = '#131c25';
+    }
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    if (req.token) drawGlyph(ctx, req.token, x, y, s * 1.25, '#c9d9e6');
+  }
+  // Mark where the animal itself stands.
+  const ax = cx - s * ext.cx;
+  const ay = cy - s * ext.cy;
+  drawToken(ctx, animal, ax, ay, s * 0.82, color, { shadow: false });
+}
+
+function drawCardDetail(now, animal, lay) {
+  const a = ANIMALS[animal];
+  const token = myToken(animal);
+  const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
+  const x = 10, w = W - 20, y = lay.detailY, h = lay.detailH;
+
+  roundRect(x, y, w, h, 14);
+  ctx.fillStyle = 'rgba(24,35,46,0.95)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.textAlign = 'left';
+  ctx.font = font('800 13px');
+  ctx.fillStyle = '#eaf1f6';
+  ctx.fillText(a.name.toUpperCase(), x + 14, y + 20);
+  ctx.font = font('500 11px');
+  ctx.fillStyle = '#93a6b5';
+  ctx.fillText(a.blurb, x + 14 + ctx.measureText(a.name.toUpperCase()).width + 34, y + 20);
+
+  const half = w / 2;
+  ctx.beginPath();
+  ctx.moveTo(x + half, y + 30);
+  ctx.lineTo(x + half, y + h - 10);
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.stroke();
+
+  const cols = [
+    { label: 'PLACE', p: a.place, active: !token.at, ready: !token.at && state.sel.spots.size > 0 },
+    { label: 'RETURN', p: a.ret, active: !!token.at, ready: !!token.at && state.sel.canReturn },
+  ];
+  cols.forEach((col, i) => {
+    const cx0 = x + i * half;
+    ctx.globalAlpha = col.active ? 1 : 0.42;
+    ctx.textAlign = 'left';
+    ctx.font = font('800 10px');
+    ctx.fillStyle = col.ready ? '#7ee196' : '#93a6b5';
+    ctx.fillText(col.label + '  +' + col.p.points, cx0 + 14, y + 44);
+    ctx.font = font('500 10px');
+    ctx.fillStyle = '#8ea1b0';
+    wrapText(col.p.hint, cx0 + 14, y + 58, half - 78, 12);
+    drawPatternDiagram(cx0 + half - 38, y + h / 2 + 12, col.p.cells, 12, color, animal);
+    ctx.globalAlpha = 1;
+  });
+}
+
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(' ');
+  let line = '';
+  let ly = y;
+  for (const word of words) {
+    const test = line ? line + ' ' + word : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      ctx.fillText(line, x, ly);
+      line = word;
+      ly += lineHeight;
+    } else line = test;
+  }
+  if (line) ctx.fillText(line, x, ly);
+}
+
+function drawButton(id, label, x, y, w, h, kind) {
+  const enabled = kind !== 'off';
+  roundRect(x, y, w, h, h / 2);
+  if (kind === 'go') {
+    ctx.fillStyle = 'rgba(126,225,150,0.92)';
+  } else if (kind === 'ghost') {
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  }
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = kind === 'go' ? 'rgba(126,225,150,0.9)' : 'rgba(255,255,255,0.14)';
+  ctx.stroke();
+  ctx.font = font('700 12px');
+  ctx.textAlign = 'center';
+  ctx.fillStyle = kind === 'go' ? '#07161c' : (enabled ? '#eaf1f6' : 'rgba(234,241,246,0.35)');
+  ctx.fillText(label, x + w / 2, y + h / 2 + 4);
+  if (enabled) pushHit(id, x, y, w, h);
+}
+
+function drawActionBar(lay) {
+  const sel = state.sel;
+  const y = lay.actionY, h = lay.actionH;
+  const endW = 96;
+  const endX = W - 10 - endW;
+
+  if (sel && sel.onBoard) {
+    const label = 'Return to card  +' + ANIMALS[sel.animal].ret.points;
+    drawButton('return', label, 10, y, 150, h, sel.canReturn ? 'go' : 'off');
+  } else if (sel) {
+    drawButton('placehint', 'Drag onto a marked hex', 10, y, 172, h, 'off');
+  } else {
+    ctx.font = font('600 12px');
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(147,166,181,0.9)';
+    ctx.fillText('Pick an animal card, or end your turn', 14, y + h / 2 + 4);
+  }
+  drawButton('endturn', 'End Turn', endX, y, endW, h, 'ghost');
+}
+
+function drawRail(now) {
+  const lay = railLayout();
+
+  // Tray behind the whole hand area.
+  const g = ctx.createLinearGradient(0, lay.top, 0, H);
+  g.addColorStop(0, 'rgba(8,13,18,0)');
+  g.addColorStop(0.22, 'rgba(8,13,18,0.8)');
+  g.addColorStop(1, 'rgba(8,13,18,0.96)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, lay.top, W, H - lay.top);
+  pushHit('tray', 0, lay.top, W, H - lay.top);
+
+  if (state.sel) drawCardDetail(now, state.sel.animal, lay);
+  drawActionBar(lay);
+
+  const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
+  ANIMAL_ORDER.forEach((animal, i) => {
+    const token = myToken(animal);
+    const x = lay.startX + i * (lay.cw + lay.gap);
+    const y = lay.railY;
+    const selected = state.sel && state.sel.animal === animal;
+
+    roundRect(x, y, lay.cw, lay.ch, 10);
+    ctx.fillStyle = selected ? 'rgba(111,195,223,0.18)' : 'rgba(255,255,255,0.05)';
+    ctx.fill();
+    ctx.lineWidth = selected ? 2 : 1;
+    ctx.strokeStyle = selected ? 'rgba(140,215,240,0.9)' : 'rgba(255,255,255,0.12)';
+    ctx.stroke();
+
+    const cx = x + lay.cw / 2;
+    if (token.at) {
+      // Piece is out on the land: show an empty slot on the card.
+      traceHex(ctx, cx, y + 25, 15);
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.fill();
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(160,235,255,0.55)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawGlyph(ctx, animal, cx, y + 25, 20, 'rgba(200,220,235,0.30)');
+    } else {
+      drawToken(ctx, animal, cx, y + 25, 33, color, { shadow: false });
+    }
+
+    ctx.textAlign = 'center';
+    ctx.font = font('700 9px');
+    ctx.fillStyle = 'rgba(234,241,246,0.85)';
+    ctx.fillText(ANIMALS[animal].name.toUpperCase(), cx, y + 54);
+
+    // Points, with the currently reachable side lit up.
+    const a = ANIMALS[animal];
+    const ready = state.ready[animal];
+    ctx.font = font('700 9px');
+    ctx.fillStyle = ready ? '#7ee196' : 'rgba(147,166,181,0.75)';
+    ctx.fillText(token.at ? 'RETURN +' + a.ret.points : 'PLACE +' + a.place.points, cx, y + 66);
+
+    pushHit('card', x, y, lay.cw, lay.ch, animal);
+  });
+}
+
+function drawDraggedToken(now) {
+  const d = state.tokenDrag;
+  if (!d) return;
+  const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
+  const size = HEX_SIZE * state.camera.scale * 0.72;
+  drawToken(ctx, d.animal, d.x, d.y - 14, size, color, {});
+}
+
 function render(now) {
+  hits = [];
   drawBackground();
   if (state.mode === 'playing' || state.mode === 'gameover') {
     drawBoard(now);
     drawTargets(now);
+    drawTokenTargets(now);
+    drawTokensOnBoard(now);
+    drawFlashes(now);
   }
   if (state.mode === 'playing') {
-    drawTray();
-    drawDeck(now);
-    drawHeld(now);
+    if (state.phase === 'tile') {
+      drawTray();
+      drawDeck(now);
+      drawHeld(now);
+    } else {
+      drawRail(now);
+      drawDraggedToken(now);
+    }
   }
   requestAnimationFrame(render);
 }
@@ -788,6 +1274,8 @@ function pointInDeck(x, y) {
   return Math.hypot(x - d.x, y - d.y) <= DECK_SIZE * 1.2;
 }
 
+let press = null;   // the pointer gesture in progress, for tap detection
+
 canvas.addEventListener('pointerdown', (e) => {
   if (state.mode !== 'playing') return;
   canvas.setPointerCapture(e.pointerId);
@@ -798,23 +1286,110 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
 
-  const held = state.held;
-  if (held && !held.dragging && (pointInHeld(e.clientX, e.clientY) || pointInDeck(e.clientX, e.clientY))) {
-    held.returning = null;
-    held.dragging = true;
-    held.pointerId = e.pointerId;
-    // Grab from the tile centre so the tile sits under the finger.
-    held.grabDX = 0;
-    held.grabDY = pointInDeck(e.clientX, e.clientY) ? -DECK_SIZE * 0.5 : 0;
-    held.x = e.clientX + held.grabDX;
-    held.y = e.clientY + held.grabDY;
-    updateHover();
-    hideHint();
+  press = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: 0, hit: null };
+
+  // Canvas drawn controls first.
+  const hit = hitTest(e.clientX, e.clientY);
+  if (hit) {
+    press.hit = hit;
+    if (hit.id === 'card') beginCardPress(hit.data, e);
     return;
+  }
+
+  if (state.phase === 'tile') {
+    const held = state.held;
+    if (held && !held.dragging && (pointInHeld(e.clientX, e.clientY) || pointInDeck(e.clientX, e.clientY))) {
+      held.returning = null;
+      held.dragging = true;
+      held.pointerId = e.pointerId;
+      // Grab from the tile centre so the tile sits under the finger.
+      held.grabDX = 0;
+      held.grabDY = pointInDeck(e.clientX, e.clientY) ? -DECK_SIZE * 0.5 : 0;
+      held.x = e.clientX + held.grabDX;
+      held.y = e.clientY + held.grabDY;
+      updateHover();
+      hideHint();
+      return;
+    }
+  } else if (e.clientY < trayTop()) {
+    // Picking up one of your own animals already out on the land.
+    const h = hexAtScreen(e.clientX, e.clientY);
+    const tk = state.tokenAt.get(key(h.q, h.r));
+    if (tk && tk.player === state.current) {
+      selectAnimal(tk.animal);
+      state.tokenDrag = { animal: tk.animal, token: tk, from: 'board', x: e.clientX, y: e.clientY };
+      hideHint();
+      return;
+    }
   }
 
   panning = { id: e.pointerId, x: e.clientX, y: e.clientY };
 });
+
+function beginCardPress(animal, e) {
+  selectAnimal(animal);
+  const token = myToken(animal);
+  if (!token.at) {
+    state.tokenDrag = { animal, token, from: 'card', x: e.clientX, y: e.clientY };
+  }
+  hideHint();
+}
+
+// The hex a dragged token would land on, or null when it is over nothing valid.
+function tokenDropKey() {
+  const d = state.tokenDrag;
+  if (!d || !state.sel || d.y > trayTop()) return null;
+  const h = hexAtScreen(d.x, d.y);
+  const k = key(h.q, h.r);
+  return state.sel.spots.has(k) ? k : null;
+}
+
+function resolveTokenDrop(tap) {
+  const d = state.tokenDrag;
+  const sel = state.sel;
+  state.tokenDrag = null;
+  if (!sel || tap) return;          // a tap just selects the card
+
+  if (d.y > trayTop()) {
+    if (d.from === 'board' && sel.canReturn) doReturnToken(sel.animal);
+    else if (d.from === 'board') showHint('The land here does not match the return layout');
+    else showHint('Drag the animal out onto the land');
+    return;
+  }
+  const h = hexAtScreen(d.x, d.y);
+  if (sel.spots.has(key(h.q, h.r))) {
+    if (d.from === 'card') doPlaceToken(sel.animal, h.q, h.r);
+    else doMoveToken(sel.animal, h.q, h.r);
+    return;
+  }
+  showHint(d.from === 'card'
+    ? 'That land does not match the placement layout'
+    : 'Animals step to one connected tile at a time');
+}
+
+function tapBoard(e) {
+  const sel = state.sel;
+  if (!sel || e.clientY > trayTop()) return;
+  const h = hexAtScreen(e.clientX, e.clientY);
+  const k = key(h.q, h.r);
+  if (sel.spots.has(k)) {
+    if (sel.onBoard) doMoveToken(sel.animal, h.q, h.r);
+    else doPlaceToken(sel.animal, h.q, h.r);
+  } else if (!state.tokenAt.has(k)) {
+    state.sel = null;
+  }
+}
+
+function fireButton(hit, e) {
+  const still = hitTest(e.clientX, e.clientY);
+  if (!still || still.id !== hit.id) return;
+  if (hit.id === 'endturn') {
+    hideHint();
+    endTurn();
+  } else if (hit.id === 'return' && state.sel && state.sel.canReturn) {
+    doReturnToken(state.sel.animal);
+  }
+}
 
 canvas.addEventListener('pointermove', (e) => {
   if (!pointers.has(e.pointerId)) return;
@@ -822,6 +1397,16 @@ canvas.addEventListener('pointermove', (e) => {
 
   if (pinch && pointers.size >= 2) {
     updatePinch();
+    return;
+  }
+
+  if (press && press.id === e.pointerId) {
+    press.moved = Math.max(press.moved, Math.hypot(e.clientX - press.x, e.clientY - press.y));
+  }
+
+  if (state.tokenDrag) {
+    state.tokenDrag.x = e.clientX;
+    state.tokenDrag.y = e.clientY;
     return;
   }
 
@@ -846,9 +1431,12 @@ canvas.addEventListener('pointermove', (e) => {
 function endPointer(e) {
   pointers.delete(e.pointerId);
   if (pointers.size < 2) pinch = null;
+  const tap = !!press && press.id === e.pointerId && press.moved < 8;
 
   const held = state.held;
-  if (held && held.dragging && held.pointerId === e.pointerId) {
+  if (state.tokenDrag) {
+    resolveTokenDrop(tap);
+  } else if (held && held.dragging && held.pointerId === e.pointerId) {
     held.dragging = false;
     const h = hexAtScreen(held.x, held.y);
     const overUi = held.y > trayTop();
@@ -858,8 +1446,14 @@ function endPointer(e) {
       returnHeld();
     }
     state.hoverKey = null;
+  } else if (tap && press.hit) {
+    fireButton(press.hit, e);
+  } else if (tap && state.mode === 'playing' && state.phase === 'token') {
+    tapBoard(e);
   }
+
   if (panning && panning.id === e.pointerId) panning = null;
+  if (press && press.id === e.pointerId) press = null;
 }
 
 canvas.addEventListener('pointerup', endPointer);
@@ -907,6 +1501,7 @@ function startPinch() {
     cy: (pts[0].y + pts[1].y) / 2,
   };
   panning = null;
+  state.tokenDrag = null;
   if (state.held && state.held.dragging) {
     state.held.dragging = false;
     state.hoverKey = null;
@@ -956,8 +1551,11 @@ function syncHud() {
   const chip = document.getElementById('turnChip');
   chip.style.background = color;
   chip.style.color = color;
-  document.getElementById('turnText').textContent =
-    state.players === 1 ? 'Your turn' : 'Player ' + (state.current + 1);
+  const who = state.players === 1 ? 'You' : 'Player ' + (state.current + 1);
+  const pts = state.scores[state.current] || 0;
+  document.getElementById('turnText').textContent = who + ' \u00b7 ' + pts + ' pts';
+  const step = document.getElementById('phaseText');
+  if (step) step.textContent = state.phase === 'tile' ? 'Lay a tile' : 'Move an animal';
 }
 
 function buildPlayerPicker() {
@@ -1003,6 +1601,50 @@ function showFinalCounts() {
   buildLegend(document.getElementById('finalCounts'), state.placedCount);
 }
 
+function buildAnimalRow() {
+  const wrap = document.getElementById('animalRow');
+  wrap.innerHTML = '';
+  ANIMAL_ORDER.forEach((animal, i) => {
+    const item = document.createElement('div');
+    const cv = document.createElement('canvas');
+    cv.width = 80;
+    cv.height = 80;
+    drawToken(cv.getContext('2d'), animal, 40, 40, 72,
+      PLAYER_COLORS[i % PLAYER_COLORS.length], { shadow: false });
+    item.appendChild(cv);
+    const label = document.createElement('span');
+    label.textContent = ANIMALS[animal].name;
+    item.appendChild(label);
+    wrap.appendChild(item);
+  });
+}
+
+function showScoreboard() {
+  const el = document.getElementById('scoreboard');
+  el.innerHTML = '';
+  const best = Math.max(...state.scores);
+  const rows = state.scores
+    .map((pts, player) => ({ pts, player }))
+    .sort((a, b) => b.pts - a.pts);
+  for (const row of rows) {
+    const div = document.createElement('div');
+    div.className = 'score-row' + (row.pts === best && best > 0 ? ' win' : '');
+    div.innerHTML =
+      '<span class="chip"></span>' +
+      '<span class="who"></span>' +
+      '<span class="crown"></span>' +
+      '<span class="pts"></span>';
+    div.querySelector('.chip').style.background =
+      PLAYER_COLORS[row.player % PLAYER_COLORS.length];
+    div.querySelector('.who').textContent =
+      state.players === 1 ? 'You' : 'Player ' + (row.player + 1);
+    div.querySelector('.crown').textContent =
+      row.pts === best && best > 0 && rows.filter((r) => r.pts === best).length === 1 ? 'WINNER' : '';
+    div.querySelector('.pts').textContent = row.pts + ' pts';
+    el.appendChild(div);
+  }
+}
+
 function showTitle() {
   state.mode = 'title';
   state.held = null;
@@ -1027,6 +1669,7 @@ function beginGame() {
 buildSprites();
 buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
+buildAnimalRow();
 
 for (const id of ['hudVersion', 'titleVersion', 'overVersion']) {
   document.getElementById(id).textContent = 'v' + VERSION;
@@ -1040,7 +1683,12 @@ document.getElementById('menuBtn').addEventListener('click', showTitle);
 // Exposed for debugging and automated smoke tests.
 window.__state = state;
 window.__version = VERSION;
-window.__debug = { placeTile, isValidTarget, hexToPixel, HEX_SIZE };
+window.__lay = railLayout;
+window.__debug = {
+  placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
+  selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
+  doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
+};
 
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));

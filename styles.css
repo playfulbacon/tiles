@@ -53,7 +53,8 @@ body { touch-action: none; user-select: none; -webkit-user-select: none; }
   z-index: 5;
 }
 
-#hud > div { display: flex; align-items: center; gap: 8px; }
+#hud > div { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+#hud span { white-space: nowrap; }
 .hud-center { flex: 1; justify-content: center; }
 .hud-right { justify-content: flex-end; }
 
@@ -80,7 +81,7 @@ body { touch-action: none; user-select: none; -webkit-user-select: none; }
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45), 0 0 14px currentColor;
 }
 
-.turn-text { font-weight: 700; font-size: 15px; letter-spacing: 0.03em; }
+.turn-text { font-weight: 700; font-size: 14px; letter-spacing: 0.02em; }
 
 .deck-count { font-size: 13px; color: var(--muted); }
 .deck-count b { color: var(--ink); font-variant-numeric: tabular-nums; }
@@ -228,7 +229,57 @@ body { touch-action: none; user-select: none; -webkit-user-select: none; }
 }
 .primary-btn:active { transform: translateY(1px); }
 
+@media (max-width: 360px) {
+  .phase-text { display: none; }
+}
+
 @media (max-width: 380px) {
   .logo.big { font-size: 28px; }
   .panel { padding: 22px 18px 18px; }
+}
+
+/* ---------- Animals and scores ---------- */
+
+.phase-text {
+  font-size: 11.5px;
+  color: var(--muted);
+  border-left: 1px solid var(--line);
+  padding-left: 9px;
+  margin-left: 3px;
+}
+
+.animal-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.animal-row div { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.animal-row canvas { width: 40px; height: 40px; display: block; }
+.animal-row span {
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.scoreboard { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 18px; }
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+}
+.score-row.win { background: rgba(126, 225, 150, 0.14); border-color: rgba(126, 225, 150, 0.5); }
+.score-row .chip { width: 13px; height: 13px; border-radius: 50%; flex: none; }
+.score-row .who { flex: 1; text-align: left; font-weight: 700; font-size: 14px; }
+.score-row .pts { font-weight: 800; font-size: 15px; font-variant-numeric: tabular-nums; }
+.score-row .crown { font-size: 11px; color: #7ee196; font-weight: 800; letter-spacing: 0.1em; }
+
+@media (max-width: 380px) {
+  .animal-row canvas { width: 34px; height: 34px; }
 }
