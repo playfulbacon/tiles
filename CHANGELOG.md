@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.1 — never serve a stale build
+
+- Css and js are requested with a `?v=` version query, so a cached page cannot
+  pull stale code.
+- The game fetches `version.json` on load with caching disabled and reloads
+  itself once, at a URL the cache has never seen, when a newer build exists.
+  Guarded against reload loops.
+- `node bump.js patch|minor|major|<version>` bumps the version everywhere it is
+  written down at once.
+
 ## v0.2.0 — animals
 
 - Seven animal cards per player — worm, frog, fish, spider, loon, deer, bear —

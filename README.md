@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.2.0**
+**Current version: v0.2.1**
 
 ## How to play
 
@@ -100,8 +100,30 @@ The site lives at the repository root, so no build is needed:
 | `animals.js` | Card definitions, pattern matching, animal silhouettes, tokens |
 | `game.js`    | Hex math, tile art, deck, turn flow, input, renderer, card UI  |
 
-## Versioning
+## Versioning and stale caches
 
-`VERSION` at the top of `game.js` is the single source of truth; it is shown on
-the title screen, in the HUD and on the game over screen. Bump it with every
-iteration and add a line to `CHANGELOG.md`.
+GitHub Pages serves everything with a ten minute browser cache, so a phone will
+cheerfully show yesterday's build after a refresh. Two things prevent that:
+
+- Every release gives the css and js **new URLs** (`game.js?v=0.2.1`), so a
+  cached `index.html` can never pull stale code.
+- The running game fetches `version.json` on load with caching disabled. If it
+  names a newer version than the one baked into `game.js`, the page reloads
+  itself once at a URL the cache has never seen. A session guard means a
+  mismatch can never cause a reload loop.
+
+So bump the version on every iteration, in one command:
+
+```sh
+node bump.js patch      # or minor, major, or an explicit 0.3.0
+```
+
+That rewrites `VERSION` in `game.js`, the `?v=` query strings in `index.html`,
+`version.json`, and the version line in this file. Then add a `CHANGELOG.md`
+entry and push. The version is shown on the title screen, in the HUD and on the
+game over screen, so you can always tell at a glance which build you are on.
+
+If you ever need to force a fresh copy by hand, just add any junk query to the
+address — `…github.io/tiles/?x=1` — which the cache has never seen. A private
+browsing tab works too. Clearing the browser cache works but is a blunt
+instrument, and there is no hard refresh gesture on mobile.

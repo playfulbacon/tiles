@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -1689,6 +1689,34 @@ window.__debug = {
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
+
+/* ------------------------------------------------------------------ *
+ * Update check
+ *
+ * GitHub Pages serves this page with a ten minute cache, so a phone will
+ * happily show yesterday's build after a refresh. version.json is fetched
+ * with caching disabled; when it names a version newer than the one baked
+ * into this script, the page reloads itself at a URL the cache has never
+ * seen. The session guard means a mismatch can never cause a reload loop.
+ * ------------------------------------------------------------------ */
+
+async function checkForUpdate() {
+  try {
+    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const latest = (await res.json()).version;
+    if (!latest || latest === VERSION) return;
+    if (sessionStorage.getItem('hexlands-update') === latest) return;
+    sessionStorage.setItem('hexlands-update', latest);
+    const url = new URL(location.href);
+    url.searchParams.set('v', latest);
+    location.replace(url.toString());
+  } catch (err) {
+    // Offline, or opened straight off the file system. Nothing to do.
+  }
+}
+
+checkForUpdate();
 
 window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => setTimeout(resize, 120));
