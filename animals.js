@@ -8,19 +8,41 @@ const TAU = Math.PI * 2;
  *
  * A pattern is a list of cells [dq, dr, requirement] where [0, 0] is the
  * hex the token stands on. A requirement is either { tile: 'water' } or
- * { token: 'fish' }; token requirements match that animal belonging to any
- * player, so pieces on the board interact with each other.
+ * { tier: 'mid' }; a tier requirement is met by any animal of that tier
+ * belonging to any player, so everyone's pieces prop each other up.
  *
  * Patterns match under all six rotations and their mirrors, so a card never
  * cares which way round the land happens to lie.
  * ------------------------------------------------------------------ */
 
 const t = (type) => ({ tile: type });
-const tok = (animal) => ({ token: animal });
+const beside = (tier) => ({ tier });
+
+/* ------------------------------------------------------------------ *
+ * The ladder
+ *
+ * Animals belong to an early, mid or late tier. To go out onto the land an
+ * animal needs one of the tier below standing alongside; to come home it
+ * needs one of the tier above. Both ends cap: early animals go out on land
+ * alone, late animals come home on land alone.
+ *
+ * So the board fills from the bottom up - only early animals can go out at
+ * first - and then unwinds from the bottom up too, the small animals
+ * retreating as the big ones arrive. Points climb with the tier, so the
+ * turns late in a game are worth several early ones.
+ * ------------------------------------------------------------------ */
+
+const TIERS = {
+  early: { name: 'Early', rank: 0, color: '#7fe0c4' },
+  mid: { name: 'Mid', rank: 1, color: '#c9a6f5' },
+  late: { name: 'Late', rank: 2, color: '#ffb36b' },
+};
+const TIER_ORDER = ['early', 'mid', 'late'];
 
 const ANIMALS = {
   worm: {
     name: 'Worm',
+    tier: 'early',
     blurb: 'Turns the soil.',
     place: {
       points: 2,
@@ -28,13 +50,14 @@ const ANIMALS = {
       cells: [[0, 0, t('dirt')], [1, 0, t('dirt')]],
     },
     ret: {
-      points: 3,
-      hint: 'Dirt with grass one side, water the other',
-      cells: [[0, 0, t('dirt')], [1, 0, t('grass')], [-1, 0, t('water')]],
+      points: 4,
+      hint: 'Dirt beside grass, a mid animal alongside',
+      cells: [[0, 0, t('dirt')], [1, 0, t('grass')], [1, -1, beside('mid')]],
     },
   },
   frog: {
     name: 'Frog',
+    tier: 'early',
     blurb: 'Hops the shallows.',
     place: {
       points: 2,
@@ -42,13 +65,14 @@ const ANIMALS = {
       cells: [[0, 0, t('water')], [1, 0, t('water')]],
     },
     ret: {
-      points: 3,
-      hint: 'Water and dirt connected, a rock between them',
-      cells: [[0, 0, t('rock')], [1, 0, t('water')], [-1, 0, t('dirt')]],
+      points: 4,
+      hint: 'A rock by the water, a mid animal alongside',
+      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, beside('mid')]],
     },
   },
   fish: {
     name: 'Fish',
+    tier: 'early',
     blurb: 'Runs the deep channels.',
     place: {
       points: 3,
@@ -56,71 +80,77 @@ const ANIMALS = {
       cells: [[0, 0, t('water')], [1, 0, t('water')], [-1, 0, t('water')]],
     },
     ret: {
-      points: 3,
-      hint: 'Water touching both dirt and rock',
-      cells: [[0, 0, t('water')], [1, 0, t('dirt')], [1, -1, t('rock')]],
+      points: 5,
+      hint: 'Water against the bank, a mid animal alongside',
+      cells: [[0, 0, t('water')], [1, 0, t('dirt')], [1, -1, beside('mid')]],
     },
   },
   spider: {
     name: 'Spider',
+    tier: 'mid',
     blurb: 'Strings a web between stones.',
     place: {
-      points: 3,
-      hint: 'Grass strung between two rocks',
-      cells: [[0, 0, t('grass')], [1, 0, t('rock')], [-1, 0, t('rock')]],
+      points: 4,
+      hint: 'Grass beside rock, an early animal alongside',
+      cells: [[0, 0, t('grass')], [1, 0, t('rock')], [1, -1, beside('early')]],
     },
     ret: {
-      points: 4,
-      hint: 'On rock beside a frog',
-      cells: [[0, 0, t('rock')], [1, 0, tok('frog')]],
+      points: 6,
+      hint: 'Rock beside grass, a late animal alongside',
+      cells: [[0, 0, t('rock')], [1, 0, t('grass')], [1, -1, beside('late')]],
     },
   },
   loon: {
     name: 'Loon',
-    blurb: 'Dives for fish.',
+    tier: 'mid',
+    blurb: 'Dives the open water.',
     place: {
-      points: 4,
-      hint: 'Water beside a fish',
-      cells: [[0, 0, t('water')], [1, 0, tok('fish')]],
+      points: 5,
+      hint: 'Open water, an early animal alongside',
+      cells: [[0, 0, t('water')], [1, 0, t('water')], [1, -1, beside('early')]],
     },
     ret: {
-      points: 3,
-      hint: 'Grass touching two water tiles',
-      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, t('water')]],
+      points: 7,
+      hint: 'Grass by the water, a late animal alongside',
+      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, beside('late')]],
     },
   },
   deer: {
     name: 'Deer',
-    blurb: 'Grazes near the stream.',
+    tier: 'late',
+    blurb: 'Grazes the wide meadow.',
     place: {
-      points: 3,
-      hint: 'Two grass tiles with water opposite',
-      cells: [[0, 0, t('grass')], [1, 0, t('grass')], [-1, 0, t('water')]],
+      points: 6,
+      hint: 'Grass by the water, a mid animal alongside',
+      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, beside('mid')]],
     },
     ret: {
-      points: 4,
-      hint: 'On grass beside a bear',
-      cells: [[0, 0, t('grass')], [1, 0, tok('bear')]],
+      points: 8,
+      hint: 'Three grass tiles in a row',
+      cells: [[0, 0, t('grass')], [1, 0, t('grass')], [-1, 0, t('grass')]],
     },
   },
   bear: {
     name: 'Bear',
+    tier: 'late',
     blurb: 'Fishes the rocky bank.',
     place: {
-      points: 4,
-      hint: 'Rock touching both water and grass',
-      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, t('grass')]],
+      points: 7,
+      hint: 'Rock by the water, a mid animal alongside',
+      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, beside('mid')]],
     },
     ret: {
-      points: 3,
+      points: 9,
       hint: 'Three rock tiles in a row',
       cells: [[0, 0, t('rock')], [1, 0, t('rock')], [-1, 0, t('rock')]],
     },
   },
 };
 
-// Rail order runs easy to hard.
+// Rail order climbs the ladder, early on the left.
 const ANIMAL_ORDER = ['worm', 'frog', 'fish', 'spider', 'loon', 'deer', 'bear'];
+const TIER_OF = (animal) => ANIMALS[animal].tier;
+const animalsInTier = (tier) => ANIMAL_ORDER.filter((a) => ANIMALS[a].tier === tier);
 
 /* ------------------------------------------------------------------ *
  * Orientations
@@ -383,6 +413,18 @@ const GLYPHS = {
     dot(c, 0.22, -0.14, 0.06);
     dot(c, 0.04, -0.16, 0.055);
   },
+};
+
+// Stands in for "any animal of this tier" on a card diagram.
+GLYPHS.any = function (c) {
+  c.beginPath();
+  c.ellipse(0, 0.36, 0.44, 0.34, 0, 0, TAU);
+  c.fill();
+  for (const [x, y, a] of [[-0.56, -0.2, -0.35], [-0.2, -0.52, -0.12], [0.2, -0.52, 0.12], [0.56, -0.2, 0.35]]) {
+    c.beginPath();
+    c.ellipse(x, y, 0.2, 0.26, a, 0, TAU);
+    c.fill();
+  }
 };
 
 // Small light coloured detail (eyes, spots) punched into a silhouette.

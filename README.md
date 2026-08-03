@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.2.1**
+**Current version: v0.3.0**
 
 ## How to play
 
@@ -39,25 +39,47 @@ Then press *End Turn*. The game ends when the deck runs out; highest score wins.
 Pan the board by dragging the background. Zoom with the scroll wheel or a
 two-finger pinch.
 
+## The ladder
+
+Animals belong to an **early**, **mid** or **late** tier. To go out onto the
+land an animal needs one of the tier **below** standing alongside it; to come
+home it needs one of the tier **above**. Both ends cap:
+
+| Tier  | Animals             | To go out          | To come home      |
+| ----- | ------------------- | ------------------ | ----------------- |
+| Early | worm, frog, fish    | land alone *(cap)* | a **mid** animal  |
+| Mid   | spider, loon        | an **early** animal | a **late** animal |
+| Late  | deer, bear          | a **mid** animal   | land alone *(cap)* |
+
+So a game fills from the bottom up — at the start only early animals can go out
+at all — and then unwinds from the bottom up too, the small animals retreating
+as the big ones arrive. Points climb with every rung, so the late turns of a
+game are worth several early ones.
+
+A tier requirement is met by **any** animal of that tier belonging to **any**
+player, so everyone's pieces prop each other up. Because both ends cap, the
+game can never lock: with every token home, early animals can always go out; with
+every token out, late animals can always come home.
+
 ## The animal cards
 
-Each card has a placement layout and a return layout. The marked hex is where
-the animal itself stands. **Layouts match in any rotation or mirror image**, so
-you only need the shape, never a particular compass direction.
+The marked hex is where the animal itself stands. **Layouts match in any
+rotation or mirror image**, so you only need the shape, never a particular
+compass direction.
 
-| Animal | Send it out | Call it home |
-| ------ | ----------- | ------------ |
-| Worm   | On dirt, touching dirt (+2)              | On dirt, grass one side, water opposite (+3) |
-| Frog   | On water, touching water (+2)            | On rock, water one side, dirt opposite (+3) |
-| Fish   | Middle of three water in a row (+3)      | On water touching both dirt and rock (+3) |
-| Spider | On grass strung between two rocks (+3)   | On rock beside a **frog** (+4) |
-| Loon   | On water beside a **fish** (+4)          | On grass touching two water (+3) |
-| Deer   | On grass, grass beside, water opposite (+3) | On grass beside a **bear** (+4) |
-| Bear   | On rock touching both water and grass (+4) | Middle of three rock in a row (+3) |
+| Animal | Tier  | Go out                                        | Come home                                     |
+| ------ | ----- | --------------------------------------------- | --------------------------------------------- |
+| Worm   | Early | On dirt, touching dirt (+2)                   | Dirt beside grass, a mid animal alongside (+4) |
+| Frog   | Early | On water, touching water (+2)                 | A rock by the water, a mid animal alongside (+4) |
+| Fish   | Early | Middle of three water in a row (+3)           | Water against the bank, a mid animal alongside (+5) |
+| Spider | Mid   | Grass beside rock, an early animal alongside (+4) | Rock beside grass, a late animal alongside (+6) |
+| Loon   | Mid   | Open water, an early animal alongside (+5)    | Grass by the water, a late animal alongside (+7) |
+| Deer   | Late  | Grass by the water, a mid animal alongside (+6) | Three grass tiles in a row (+8)             |
+| Bear   | Late  | Rock by the water, a mid animal alongside (+7) | Three rock tiles in a row (+9)               |
 
-Three cards ask for another animal rather than a tile type, and any player's
-token counts — so the pieces on the board play off each other. Sending an animal
-out and calling it home both score, so a card can be cycled again and again.
+Sending an animal out and calling it home both score, so a card can be cycled
+again and again — and cycling beats hoarding, since an animal left on the board
+is a card you cannot score with.
 
 Animals may share the land freely but never a single hex, and only one animal
 moves per turn.

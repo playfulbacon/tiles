@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.0 — the ladder
+
+- Animals are grouped into early (worm, frog, fish), mid (spider, loon) and
+  late (deer, bear) tiers.
+- An animal needs one of the tier below alongside it to go out, and one of the
+  tier above to come home. Both ends cap: early animals go out on land alone,
+  late animals come home on land alone — so a game opens with only early
+  animals available and can never lock in either direction.
+- Tier requirements are met by any animal of that tier belonging to any player,
+  so everyone's pieces prop each other up.
+- Points now climb with the rung, 2 up to 9, so late turns are worth several
+  early ones.
+- Card requirements that name a tier are drawn as a paw in that tier's colour;
+  cards carry a tier bar that lengthens with the rung, and the title screen
+  groups the animals by tier.
+
 ## v0.2.1 — never serve a stale build
 
 - Css and js are requested with a `?v=` version query, so a cached page cannot

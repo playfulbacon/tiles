@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -530,6 +530,10 @@ function cellSatisfied(q, r, req) {
     const tile = state.board.get(key(q, r));
     return !!tile && (req.tile === 'any' || tile.type === req.tile);
   }
+  if (req.tier) {
+    const tk = state.tokenAt.get(key(q, r));
+    return !!tk && ANIMALS[tk.animal].tier === req.tier;
+  }
   if (req.token) {
     const tk = state.tokenAt.get(key(q, r));
     return !!tk && tk.animal === req.token;
@@ -1044,14 +1048,20 @@ function drawPatternDiagram(cx, cy, cells, s, color, animal) {
       ctx.fillStyle = TYPES[req.tile].base;
       ctx.fill();
       ctx.strokeStyle = TYPES[req.tile].ink;
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
     } else {
-      ctx.fillStyle = '#26333f';
+      // Any animal of a tier: a paw in that tier's colour.
+      const tint = req.tier ? TIERS[req.tier].color : '#c9d9e6';
+      ctx.fillStyle = '#1d2833';
       ctx.fill();
-      ctx.strokeStyle = '#131c25';
+      ctx.setLineDash([2.5, 2.5]);
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = tint;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawGlyph(ctx, req.token || 'any', x, y, s * 1.05, tint);
     }
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-    if (req.token) drawGlyph(ctx, req.token, x, y, s * 1.25, '#c9d9e6');
   }
   // Mark where the animal itself stands.
   const ax = cx - s * ext.cx;
@@ -1076,9 +1086,14 @@ function drawCardDetail(now, animal, lay) {
   ctx.font = font('800 13px');
   ctx.fillStyle = '#eaf1f6';
   ctx.fillText(a.name.toUpperCase(), x + 14, y + 20);
+  const nameW = ctx.measureText(a.name.toUpperCase()).width;
+  const tier = TIERS[a.tier];
+  ctx.font = font('800 9px');
+  ctx.fillStyle = tier.color;
+  ctx.fillText(tier.name.toUpperCase(), x + 20 + nameW, y + 20);
   ctx.font = font('500 11px');
   ctx.fillStyle = '#93a6b5';
-  ctx.fillText(a.blurb, x + 14 + ctx.measureText(a.name.toUpperCase()).width + 34, y + 20);
+  ctx.fillText(a.blurb, x + 20 + nameW + ctx.measureText(tier.name.toUpperCase()).width + 12, y + 20);
 
   const half = w / 2;
   ctx.beginPath();
@@ -1088,8 +1103,8 @@ function drawCardDetail(now, animal, lay) {
   ctx.stroke();
 
   const cols = [
-    { label: 'PLACE', p: a.place, active: !token.at, ready: !token.at && state.sel.spots.size > 0 },
-    { label: 'RETURN', p: a.ret, active: !!token.at, ready: !!token.at && state.sel.canReturn },
+    { label: 'GO OUT', p: a.place, active: !token.at, ready: !token.at && state.sel.spots.size > 0 },
+    { label: 'COME HOME', p: a.ret, active: !!token.at, ready: !!token.at && state.sel.canReturn },
   ];
   cols.forEach((col, i) => {
     const cx0 = x + i * half;
@@ -1191,10 +1206,19 @@ function drawRail(now) {
     ctx.strokeStyle = selected ? 'rgba(140,215,240,0.9)' : 'rgba(255,255,255,0.12)';
     ctx.stroke();
 
+    // Tier bar: short for early, full width for late.
+    const tier = TIERS[ANIMALS[animal].tier];
+    const barW = (lay.cw - 20) * (0.4 + 0.3 * tier.rank);
+    roundRect(x + 10, y + 6, barW, 3, 1.5);
+    ctx.fillStyle = tier.color;
+    ctx.globalAlpha = selected ? 1 : 0.75;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
     const cx = x + lay.cw / 2;
     if (token.at) {
       // Piece is out on the land: show an empty slot on the card.
-      traceHex(ctx, cx, y + 25, 15);
+      traceHex(ctx, cx, y + 28, 15);
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.fill();
       ctx.setLineDash([3, 3]);
@@ -1202,22 +1226,22 @@ function drawRail(now) {
       ctx.strokeStyle = 'rgba(160,235,255,0.55)';
       ctx.stroke();
       ctx.setLineDash([]);
-      drawGlyph(ctx, animal, cx, y + 25, 20, 'rgba(200,220,235,0.30)');
+      drawGlyph(ctx, animal, cx, y + 28, 20, 'rgba(200,220,235,0.30)');
     } else {
-      drawToken(ctx, animal, cx, y + 25, 33, color, { shadow: false });
+      drawToken(ctx, animal, cx, y + 28, 32, color, { shadow: false });
     }
 
     ctx.textAlign = 'center';
     ctx.font = font('700 9px');
     ctx.fillStyle = 'rgba(234,241,246,0.85)';
-    ctx.fillText(ANIMALS[animal].name.toUpperCase(), cx, y + 54);
+    ctx.fillText(ANIMALS[animal].name.toUpperCase(), cx, y + 55);
 
     // Points, with the currently reachable side lit up.
     const a = ANIMALS[animal];
     const ready = state.ready[animal];
     ctx.font = font('700 9px');
     ctx.fillStyle = ready ? '#7ee196' : 'rgba(147,166,181,0.75)';
-    ctx.fillText(token.at ? 'RETURN +' + a.ret.points : 'PLACE +' + a.place.points, cx, y + 66);
+    ctx.fillText(token.at ? 'HOME +' + a.ret.points : 'OUT +' + a.place.points, cx, y + 67);
 
     pushHit('card', x, y, lay.cw, lay.ch, animal);
   });
@@ -1604,19 +1628,34 @@ function showFinalCounts() {
 function buildAnimalRow() {
   const wrap = document.getElementById('animalRow');
   wrap.innerHTML = '';
-  ANIMAL_ORDER.forEach((animal, i) => {
-    const item = document.createElement('div');
-    const cv = document.createElement('canvas');
-    cv.width = 80;
-    cv.height = 80;
-    drawToken(cv.getContext('2d'), animal, 40, 40, 72,
-      PLAYER_COLORS[i % PLAYER_COLORS.length], { shadow: false });
-    item.appendChild(cv);
-    const label = document.createElement('span');
-    label.textContent = ANIMALS[animal].name;
-    item.appendChild(label);
-    wrap.appendChild(item);
-  });
+  let i = 0;
+  for (const tier of TIER_ORDER) {
+    const group = document.createElement('div');
+    group.className = 'tier-group';
+    group.style.setProperty('--tier', TIERS[tier].color);
+
+    const head = document.createElement('b');
+    head.textContent = TIERS[tier].name;
+    group.appendChild(head);
+
+    const row = document.createElement('div');
+    row.className = 'tier-animals';
+    for (const animal of animalsInTier(tier)) {
+      const item = document.createElement('div');
+      const cv = document.createElement('canvas');
+      cv.width = 80;
+      cv.height = 80;
+      drawToken(cv.getContext('2d'), animal, 40, 40, 72,
+        PLAYER_COLORS[i++ % PLAYER_COLORS.length], { shadow: false });
+      item.appendChild(cv);
+      const label = document.createElement('span');
+      label.textContent = ANIMALS[animal].name;
+      item.appendChild(label);
+      row.appendChild(item);
+    }
+    group.appendChild(row);
+    wrap.appendChild(group);
+  }
 }
 
 function showScoreboard() {
