@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.9.0 — facing, reshaping, and rock finds a use
+
+- **The frog now basks on a rock at the water's edge**, so rock has an early use
+  at last. It was the only terrain with no early demand at all, which is why a
+  hand of rocks felt dead.
+- **Split tiles are back, and directional.** A tile split down the middle counts
+  as a terrain for a neighbour only if that half is facing it; on the tile an
+  animal stands on, it stands on the half it needs. Turning a tile now decides
+  what it is worth and to whom, which gives the turn buttons real work.
+- **Late animals come home more readily**: deer on grass touching grass, bear on
+  rock against rock, rather than three in a row.
+- **A tile may be laid over one already on the board**, so long as no animal
+  stands on it. The land can be reshaped: a layout finished that was one terrain
+  short, or a connection cut that somebody was relying on.
+- Final terrain counts are read off the board rather than tallied as tiles are
+  laid, since a covered tile is no longer there.
+
 ## v0.8.1 — quieter cards and board
 
 - The player marker on each tile is now an option, **off by default**, and the

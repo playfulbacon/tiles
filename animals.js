@@ -17,7 +17,9 @@ const TAU = Math.PI * 2;
  * other up rather than each player building alone.
  *
  * Patterns match under all six rotations and their mirrors, so a card never
- * cares which way round the land happens to lie.
+ * cares which way round the land happens to lie. The check is given the anchor
+ * as well as the cell, because a tile split down the middle only shows one of
+ * its terrains to any given neighbour.
  * ------------------------------------------------------------------ */
 
 const t = (type) => ({ tile: type });
@@ -69,11 +71,11 @@ const ANIMALS = {
   frog: {
     name: 'Frog',
     tier: 'early',
-    blurb: 'Hunts the muddy shallows.',
+    blurb: 'Basks at the water\u2019s edge.',
     place: {
       points: 2,
-      hint: 'Water with dirt alongside',
-      cells: [[0, 0, t('water')], [1, 0, t('dirt')]],
+      hint: 'A rock at the water\u2019s edge',
+      cells: [[0, 0, t('rock')], [1, 0, t('water')]],
     },
     ret: {
       points: 5,
@@ -137,8 +139,8 @@ const ANIMALS = {
     },
     ret: {
       points: 8,
-      hint: 'Three grass tiles in a row',
-      cells: [[0, 0, t('grass')], [1, 0, t('grass')], [-1, 0, t('grass')]],
+      hint: 'Grass touching grass',
+      cells: [[0, 0, t('grass')], [1, 0, t('grass')]],
     },
   },
   bear: {
@@ -152,8 +154,8 @@ const ANIMALS = {
     },
     ret: {
       points: 9,
-      hint: 'Three rock tiles in a row',
-      cells: [[0, 0, t('rock')], [1, 0, t('rock')], [-1, 0, t('rock')]],
+      hint: 'Rock against rock',
+      cells: [[0, 0, t('rock')], [1, 0, t('rock')]],
     },
   },
 };
@@ -296,7 +298,7 @@ function matchPattern(aq, ar, cells, check) {
     let ok = true;
     for (const [dq, dr, req] of cells) {
       const [tq, tr] = orient(dq, dr, o);
-      if (!check(aq + tq, ar + tr, req)) { ok = false; break; }
+      if (!check(aq + tq, ar + tr, req, aq, ar)) { ok = false; break; }
     }
     if (ok) return o;
   }

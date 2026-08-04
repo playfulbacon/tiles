@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.8.1**
+**Current version: v0.9.0**
 
 ## How to play
 
@@ -158,6 +158,26 @@ throwing, so a bad card can never spoil a game in progress. It checks that:
 | Grass | Green with scattered tufts                  |
 | Dirt  | Brown with soil patches, furrows and pebbles |
 
+### Split tiles
+
+Twelve tiles are **split down the middle** — three sides one terrain, three the
+other. Unlike before, this is **directional**:
+
+> A split tile counts as a terrain for a neighbour only if **that half is facing
+> it**. On the tile an animal stands on, it simply stands on the half it needs.
+
+So how a split tile is turned decides what it is worth and to whom, which is
+what the turn buttons are for. A dot sits in each half so the facing reads at a
+glance and at any zoom.
+
+### Laying over land already down
+
+A tile may be laid **on top of a tile already on the board**, so long as no
+animal is standing on that tile. The old tile is simply replaced. This reshapes
+the land: it can finish a layout that was one terrain short, or cut a connection
+somebody else was relying on. Coverable tiles are outlined faintly while you
+drag, and the one under your tile is ringed in amber.
+
 ### Special tiles
 
 Four of the sixty tiles are **special**. Lay one and its animal steps straight
@@ -175,8 +195,9 @@ Laying one scores that animal's go out points. If the animal is already out on
 the land it simply comes to the new tile instead, which scores nothing but can
 save it a long walk.
 
-The bag holds 60 tiles: 15 carrying each terrain, four of which are the specials
-above.
+The bag holds 60 tiles: eleven plain of each terrain, twelve split down the
+middle, and the four specials. That leaves eighteen tiles carrying each
+terrain.
 
 ## Running it
 

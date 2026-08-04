@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.8.1';
+const VERSION = '0.9.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -40,9 +40,24 @@ const TYPES = {
 
 const TYPE_KEYS = Object.keys(TYPES);
 
-/* The bag holds 60 tiles. Fourteen of each terrain, plus four special tiles
- * that bring an animal with them. */
-const COPIES_PER_TYPE = 14;
+/* The bag holds 60 tiles: eleven plain of each terrain, twelve split down the
+ * middle, and four specials that bring an animal with them. That leaves each
+ * terrain on eighteen tiles. */
+const COPIES_PER_TYPE = 11;
+const COPIES_PER_MIX = 2;
+
+/* A split tile is halved: three sides one terrain, three the other. Which
+ * terrain a neighbour sees depends on which half faces it, so how a split tile
+ * is turned decides what it is worth and to whom. */
+const MIXES = [
+  ['water', 'rock'],    // a rocky shore
+  ['water', 'grass'],   // reeds and marsh
+  ['water', 'dirt'],    // a muddy bank
+  ['rock', 'grass'],    // an outcrop in the meadow
+  ['rock', 'dirt'],     // scree and gravel
+  ['grass', 'dirt'],    // worn ground
+];
+const HALF = 3;         // sides belonging to the second terrain
 
 /* Special tiles. Laying one puts that animal straight onto it, with no layout
  * to satisfy - a burrow is a worm's, a spring holds fish, a den is a bear's.
@@ -107,6 +122,26 @@ function roundHex(q, r) {
 }
 
 const key = (q, r) => q + ',' + r;
+
+/* Side 0 of a hex is the edge between corner 0 and corner 1, and so on round.
+ * Neighbour direction d meets side (6 - d) % 6. */
+const sideFacing = (d) => (6 - d) % 6;
+
+function dirToward(fromQ, fromR, toQ, toR) {
+  for (let d = 0; d < DIRS.length; d++) {
+    if (fromQ + DIRS[d][0] === toQ && fromR + DIRS[d][1] === toR) return d;
+  }
+  return -1;
+}
+
+/* What this tile presents on one of its six sides. A plain tile shows the same
+ * terrain all the way round; a split tile shows its second terrain on the
+ * sides its half covers, turned by the tile's facing. */
+function terrainOnSide(tile, side) {
+  if (!tile.types[1]) return tile.types[0];
+  const local = (((side - (tile.rot || 0)) % 6) + 6) % 6;
+  return local < (tile.sides || HALF) ? tile.types[1] : tile.types[0];
+}
 
 function hexCorners(cx, cy, size) {
   const pts = [];
@@ -372,7 +407,7 @@ const state = {
   valid: new Set(),
   camera: { x: 0, y: 0, scale: 1 },
   hoverKey: null,
-  placedCount: { water: 0, rock: 0, grass: 0, dirt: 0 },
+  covered: 0,           // tiles laid over land already down
   lastPlaced: null,
   tokens: new Map(),    // "player:animal" -> { player, animal, at }
   tokenAt: new Map(),   // "q,r" -> token
@@ -424,6 +459,11 @@ function buildDeck() {
   for (const type of TYPE_KEYS) {
     for (let i = 0; i < COPIES_PER_TYPE; i++) deck.push(card(type));
   }
+  for (const mix of MIXES) {
+    for (let i = 0; i < COPIES_PER_MIX; i++) {
+      deck.push(card(mix[0], { types: mix.slice(), sides: HALF }));
+    }
+  }
   for (const sp of SPECIALS) deck.push(card(sp.type, { special: sp.animal, specialName: sp.name }));
   return shuffle(deck);
 }
@@ -447,7 +487,7 @@ function startGame(players) {
   state.valid = new Set();
   state.held = null;
   state.lastPlaced = null;
-  state.placedCount = { water: 0, rock: 0, grass: 0, dirt: 0 };
+  state.covered = 0;
   state.camera = { x: 0, y: 0, scale: 1 };
   state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
@@ -519,14 +559,23 @@ function recomputeValid() {
 }
 
 function isValidTarget(q, r) {
-  if (state.board.has(key(q, r))) return false;
+  const k = key(q, r);
   if (state.pending && state.pending.q === q && state.pending.r === r) return false;
+  // A tile may be laid over one already down, reshaping the land, so long as
+  // no animal is standing on it.
+  if (state.board.has(k)) return !state.tokenAt.has(k);
   if (state.board.size === 0) return true;
-  return state.valid.has(key(q, r));
+  return state.valid.has(k);
+}
+
+// Is this hex an existing tile being covered rather than new land?
+function isOverlay(q, r) {
+  return state.board.has(key(q, r)) && !state.tokenAt.has(key(q, r));
 }
 
 function placeTile(q, r, tile) {
   const held = tile || state.held;
+  const covering = state.board.has(key(q, r));
   state.board.set(key(q, r), {
     q, r,
     types: held.types,
@@ -536,8 +585,9 @@ function placeTile(q, r, tile) {
     owner: state.current,
     placedAt: performance.now(),
   });
-  for (const type of held.types) state.placedCount[type]++;
+
   state.lastPlaced = key(q, r);
+  state.covered += covering ? 1 : 0;
   state.held = null;
   state.pending = null;
   state.turn.tileLaid = true;
@@ -689,11 +739,20 @@ function myToken(animal) {
 }
 
 // One cell of a card pattern, tested against the board as it stands.
-function cellSatisfied(q, r, req) {
+function cellSatisfied(q, r, req, aq, ar) {
   if (req.tile) {
     const tile = state.board.get(key(q, r));
-    // Any terrain on the tile counts, so a water and rock tile is both.
-    return !!tile && (req.tile === 'any' || tile.types.includes(req.tile));
+    if (!tile) return false;
+    if (req.tile === 'any') return true;
+    if (!tile.types.includes(req.tile)) return false;
+    if (tile.types.length < 2) return true;
+    // The animal stands on the anchor, so on that tile it simply stands on the
+    // half it needs. Every other tile in the layout has to be showing the
+    // terrain to the anchor - the animal must be able to reach it.
+    if (aq === undefined || (q === aq && r === ar)) return true;
+    const d = dirToward(q, r, aq, ar);
+    if (d < 0) return true;                      // not adjacent; nothing to face
+    return terrainOnSide(tile, sideFacing(d)) === req.tile;
   }
   if (req.tier) {
     const tk = state.tokenAt.get(key(q, r));
@@ -900,9 +959,9 @@ function sidePath(c, size, sides) {
   const pts = hexCorners(0, 0, size);
   c.beginPath();
   c.moveTo(0, 0);
-  radialEdge(c, size, 0, -10, false);
+  radialEdge(c, size, 0, -6, false);
   for (let i = 1; i <= sides; i++) c.lineTo(pts[i % 6][0], pts[i % 6][1]);
-  radialEdge(c, size, sides % 6, 10, true);
+  radialEdge(c, size, sides % 6, 6, true);
   c.closePath();
 }
 
@@ -942,9 +1001,9 @@ function drawTileArt(c, tile, cx, cy, size, alpha) {
     // Seam: only the two radial edges, not the rim.
     c.beginPath();
     c.moveTo(0, 0);
-    radialEdge(c, size, 0, -10, false);
+    radialEdge(c, size, 0, -6, false);
     c.moveTo(0, 0);
-    radialEdge(c, size, sides % 6, 10, false);
+    radialEdge(c, size, sides % 6, 6, false);
     c.lineWidth = Math.max(1.2, size * 0.045);
     c.strokeStyle = 'rgba(12,18,24,0.5)';
     c.stroke();
@@ -974,7 +1033,7 @@ function drawBoard(now) {
 
     // Mixed tiles carry a pip per terrain, so the rule stays readable even
     // when the art is small or the terrains look alike at a glance.
-    if (tile.types.length > 1) drawTypePips(tile.types, s.x, s.y, size);
+    drawTypePips(ctx, tile, s.x, s.y, size);
 
     // Owner pip: who laid this tile. Off unless asked for.
     if (state.showOwners && state.players > 1) {
@@ -991,24 +1050,30 @@ function drawBoard(now) {
   }
 }
 
-// Small terrain dots along the top of a mixed tile.
-function drawTypePips(types, cx, cy, size) {
-  const pr = Math.max(2.8, size * 0.088);
-  const gap = pr * 2.4;
-  const y = cy - size * 0.52;
-  // A dark plate behind the dots so they read over any terrain.
-  ctx.beginPath();
-  const w = gap * (types.length - 1) + pr * 2;
-  roundRect(cx - w / 2 - pr * 0.5, y - pr * 1.35, w + pr, pr * 2.7, pr * 1.35);
-  ctx.fillStyle = 'rgba(8,14,20,0.55)';
-  ctx.fill();
-  types.forEach((type, i) => {
-    const x = cx + (i - (types.length - 1) / 2) * gap;
-    ctx.beginPath();
-    ctx.arc(x, y, pr, 0, Math.PI * 2);
-    ctx.fillStyle = TYPES[type].light;
-    ctx.fill();
-  });
+/* A dot sitting in the middle of each half, so which sides carry which terrain
+ * reads at a glance and follows the tile when it is turned. */
+function drawTypePips(c, tile, cx, cy, size) {
+  if (!tile.types[1]) return;
+  const pr = Math.max(2.4, size * 0.1);
+  const sides = tile.sides || HALF;
+  // The second terrain covers local sides 0 to sides-1, centred on that arc.
+  const mid = (Math.PI / 3) * (sides / 2) + (Math.PI / 3) * (tile.rot || 0);
+  const halves = [
+    { type: tile.types[1], a: mid },
+    { type: tile.types[0], a: mid + Math.PI },
+  ];
+  for (const h of halves) {
+    const x = cx + Math.cos(h.a) * size * 0.46;
+    const y = cy + Math.sin(h.a) * size * 0.46;
+    c.beginPath();
+    c.arc(x, y, pr * 1.5, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(8,14,20,0.5)';
+    c.fill();
+    c.beginPath();
+    c.arc(x, y, pr, 0, Math.PI * 2);
+    c.fillStyle = TYPES[h.type].light;
+    c.fill();
+  }
 }
 
 function easeOutBack(t) {
@@ -1035,6 +1100,33 @@ function drawTargets(now) {
     traceHex(ctx, s.x, s.y, size * 0.94);
     ctx.stroke();
   } else {
+    // Tiles that could be covered, marked quietly so the option is visible
+    // without shouting over the land.
+    ctx.strokeStyle = 'rgba(255,196,120,0.22)';
+    ctx.lineWidth = Math.max(1.5, size * 0.04);
+    for (const tile of state.board.values()) {
+      if (state.tokenAt.has(key(tile.q, tile.r))) continue;
+      const p = hexToPixel(tile.q, tile.r, HEX_SIZE);
+      const sc = worldToScreen(p.x, p.y);
+      if (sc.x < -size || sc.x > W + size || sc.y < -size || sc.y > H + size) continue;
+      if (state.hoverKey === key(tile.q, tile.r)) continue;
+      traceHex(ctx, sc.x, sc.y, size * 0.82);
+      ctx.stroke();
+    }
+    if (state.hoverKey && isOverlay(...state.hoverKey.split(',').map(Number))) {
+      const [q, r] = state.hoverKey.split(',').map(Number);
+      const p = hexToPixel(q, r, HEX_SIZE);
+      const sc = worldToScreen(p.x, p.y);
+      ctx.setLineDash([]);
+      ctx.fillStyle = `rgba(255,196,120,${0.16 + pulse * 0.1})`;
+      traceHex(ctx, sc.x, sc.y, size);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255,206,140,${0.8 + pulse * 0.2})`;
+      ctx.lineWidth = Math.max(3, size * 0.09);
+      traceHex(ctx, sc.x, sc.y, size * 0.97);
+      ctx.stroke();
+      ctx.setLineDash([size * 0.22, size * 0.16]);
+    }
     for (const k of state.valid) {
       const [q, r] = k.split(',').map(Number);
       const p = hexToPixel(q, r, HEX_SIZE);
@@ -1159,7 +1251,7 @@ function drawHeld(now) {
   drawTileArt(ctx, held, held.x, held.y + bob, size);
   drawSpecialMark(ctx, held, held.x, held.y + bob, size);
   ctx.restore();
-  if (held.types.length > 1) drawTypePips(held.types, held.x, held.y + bob, size);
+  drawTypePips(ctx, held, held.x, held.y + bob, size);
 
 }
 
@@ -1236,6 +1328,7 @@ function drawChoices(now, lay) {
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 4;
     drawTileArt(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
+    drawTypePips(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
     drawSpecialMark(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
     ctx.restore();
     if (card.special) {
@@ -1642,7 +1735,7 @@ function drawPendingTile(now) {
   drawTileArt(ctx, p, s.x, s.y, size, 0.92);
   drawSpecialMark(ctx, p, s.x, s.y, size, 0.92);
   ctx.restore();
-  if (p.types.length > 1) drawTypePips(p.types, s.x, s.y, size);
+  drawTypePips(ctx, p, s.x, s.y, size);
 
   ctx.save();
   ctx.setLineDash([size * 0.2, size * 0.14]);
@@ -2130,6 +2223,29 @@ function buildLegend(el, counts) {
   }
 }
 
+// The title screen shows what a split tile looks like from each half.
+function buildSplitRow() {
+  const el = document.getElementById('splitRow');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const mix of [['water', 'rock'], ['rock', 'grass'], ['grass', 'dirt']]) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    const cv = document.createElement('canvas');
+    cv.width = 104;
+    cv.height = 90;
+    const c = cv.getContext('2d');
+    const tile = { types: mix, variant: 0, rot: 4, sides: HALF };
+    drawTileArt(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
+    drawTypePips(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
+    item.appendChild(cv);
+    const label = document.createElement('span');
+    label.textContent = TYPES[mix[0]].name + ' / ' + TYPES[mix[1]].name;
+    item.appendChild(label);
+    el.appendChild(item);
+  }
+}
+
 // The title screen shows the four special tiles and what each one brings.
 function buildSpecialRow() {
   const el = document.getElementById('specialRow');
@@ -2190,7 +2306,11 @@ function buildDrawPicker() {
 }
 
 function showFinalCounts() {
-  buildLegend(document.getElementById('finalCounts'), state.placedCount);
+  const counts = { water: 0, rock: 0, grass: 0, dirt: 0 };
+  for (const tile of state.board.values()) {
+    for (const type of tile.types) counts[type]++;
+  }
+  buildLegend(document.getElementById('finalCounts'), counts);
 }
 
 function buildAnimalRow() {
@@ -2282,6 +2402,7 @@ if (cardProblems.length) {
 
 buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
+buildSplitRow();
 buildSpecialRow();
 buildDrawPicker();
 buildOptions();
@@ -2305,7 +2426,7 @@ window.__debug = {
   placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
   recomputeValid, spendAnimalMove, cancelPending, confirmPending, setPending,
-  chooseTile, summonOnSpecial, SPECIALS,
+  chooseTile, summonOnSpecial, SPECIALS, terrainOnSide, isOverlay,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
 
