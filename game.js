@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.7.0';
+const VERSION = '0.7.1';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -559,7 +559,25 @@ function setPending(q, r) {
   state.pending = { q, r, types: h.types, variant: h.variant, rot: h.rot, sides: h.sides };
   state.held = null;
   state.hoverKey = null;
+  ensurePendingRoom();
   showHint(h.types.length > 1 ? 'Turn it if you like, then confirm' : 'Confirm to lay it', 2600);
+}
+
+/* The controls straddle the tile, so a tile dropped hard against the top or
+ * bottom of the view leaves nowhere to put them. Shift the board the smallest
+ * amount that gives both rows their space. */
+function ensurePendingRoom() {
+  const p = state.pending;
+  if (!p) return;
+  const size = HEX_SIZE * state.camera.scale;
+  const need = 38 + 12 + size * 0.95;          // a row, its gap, half a tile
+  const minY = 56 + need;
+  const maxY = trayTop() - need;
+  if (maxY <= minY) return;                    // nothing sensible to do
+  const pt = hexToPixel(p.q, p.r, HEX_SIZE);
+  const s = worldToScreen(pt.x, pt.y);
+  const delta = s.y < minY ? minY - s.y : (s.y > maxY ? maxY - s.y : 0);
+  if (delta) state.camera.y -= delta / state.camera.scale;
 }
 
 function cancelPending() {
@@ -1450,8 +1468,10 @@ function drawHand(now) {
   });
 }
 
-/* Where the confirm cluster sits: under the pending tile, nudged to stay on
- * screen and clear of the hand. */
+/* The pending tile's controls sit on two levels with the tile between them:
+ * Back and Confirm above, turning below. Committing and turning are different
+ * kinds of decision, and a fat finger reaching for one must not find the
+ * other. */
 function pendingLayout() {
   const p = state.pending;
   if (!p) return null;
@@ -1459,14 +1479,24 @@ function pendingLayout() {
   const s = worldToScreen(pt.x, pt.y);
   const size = HEX_SIZE * state.camera.scale;
   const canTurn = p.types.length > 1;
-  const rotW = 40, gap = 7, backW = 64, okW = 92, h = 38;
-  const total = (canTurn ? (rotW + gap) * 2 : 0) + backW + gap + okW;
-  let x = Math.max(8, Math.min(W - 8 - total, s.x - total / 2));
+  const rotW = 44, gap = 8, backW = 64, okW = 92, h = 38;
+
+  const topTotal = backW + gap + okW;
+  const botTotal = rotW * 2 + gap;
+  const clampX = (total) => Math.max(8, Math.min(W - 8 - total, s.x - total / 2));
+
   const lowest = trayTop() - h - 10;
-  let y = s.y + size * 0.92 + 8;
-  if (y > lowest) y = s.y - size * 0.92 - 8 - h;      // flip above the tile
-  y = Math.max(58, Math.min(lowest, y));
-  return { x, y, h, rotW, backW, okW, gap, total, canTurn, sx: s.x, sy: s.y, size };
+  let topY = s.y - size * 0.95 - 12 - h;
+  let botY = s.y + size * 0.95 + 12;
+  topY = Math.max(56, Math.min(lowest - h - 10, topY));
+  botY = Math.max(topY + h + 10, Math.min(lowest, botY));
+
+  return {
+    h, rotW, backW, okW, gap, canTurn,
+    topX: clampX(topTotal), topY, topTotal,
+    botX: clampX(botTotal), botY, botTotal,
+    sx: s.x, sy: s.y, size,
+  };
 }
 
 function drawRotIcon(cx, cy, r, dir, color) {
@@ -1521,24 +1551,26 @@ function drawPendingTile(now) {
 function drawPendingControls() {
   const lay = pendingLayout();
   if (!lay) return;
-  let x = lay.x;
 
-  if (lay.canTurn) {
-    for (const [id, dir] of [['rotccw', -1], ['rotcw', 1]]) {
-      roundRect(x, lay.y, lay.rotW, lay.h, lay.h / 2);
-      ctx.fillStyle = 'rgba(23,34,45,0.95)';
-      ctx.fill();
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-      ctx.stroke();
-      drawRotIcon(x + lay.rotW / 2, lay.y + lay.h / 2, 10, dir, '#eaf1f6');
-      pushHit(id, x, lay.y, lay.rotW, lay.h);
-      x += lay.rotW + lay.gap;
-    }
+  // Above the tile: the two decisions that end the placement.
+  drawButton('back', 'Back', lay.topX, lay.topY, lay.backW, lay.h, 'ghost');
+  drawButton('confirm', 'Confirm', lay.topX + lay.backW + lay.gap, lay.topY,
+    lay.okW, lay.h, 'go');
+
+  // Below it: turning, which you may want to do several times.
+  if (!lay.canTurn) return;
+  let x = lay.botX;
+  for (const [id, dir] of [['rotccw', -1], ['rotcw', 1]]) {
+    roundRect(x, lay.botY, lay.rotW, lay.h, lay.h / 2);
+    ctx.fillStyle = 'rgba(23,34,45,0.95)';
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.stroke();
+    drawRotIcon(x + lay.rotW / 2, lay.botY + lay.h / 2, 10, dir, '#eaf1f6');
+    pushHit(id, x, lay.botY, lay.rotW, lay.h);
+    x += lay.rotW + lay.gap;
   }
-  drawButton('back', 'Back', x, lay.y, lay.backW, lay.h, 'ghost');
-  x += lay.backW + lay.gap;
-  drawButton('confirm', 'Confirm', x, lay.y, lay.okW, lay.h, 'go');
 }
 
 function drawDraggedToken(now) {
@@ -2113,7 +2145,7 @@ window.__pendLay = pendingLayout;
 window.__debug = {
   placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
-  recomputeValid, spendAnimalMove,
+  recomputeValid, spendAnimalMove, cancelPending, confirmPending, setPending,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
 

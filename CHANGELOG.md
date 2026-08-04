@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.1 — the pending tile's controls sit on two levels
+
+- Back and Confirm now sit **above** the pending tile, the turn buttons
+  **below** it. Committing and turning are different kinds of decision, and
+  reaching for one should never catch the other.
+- If a tile lands hard against the top or bottom of the view, the board shifts
+  by the smallest amount that gives both rows their space, so the tile is always
+  between its controls rather than the buttons piling onto it.
+
 ## v0.7.0 — sides, and turning a tile
 
 - On a mixed tile the two terrains now divide along the **six sides of the

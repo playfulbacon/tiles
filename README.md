@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.7.0**
+**Current version: v0.7.1**
 
 ## How to play
 
@@ -25,13 +25,17 @@ onto the board.
   your turn to a misdrop.
 
 A dropped tile **waits for confirmation** rather than committing, so you can get
-its facing right first. Four buttons appear beside it:
+its facing right first. Its controls sit on two levels with the tile between
+them, so reaching for one can never catch the other:
 
-| | |
-| --- | --- |
-| ↺ ↻ | turn the tile one side each way |
-| Back | return it to your hand, still turned as you left it |
-| Confirm | lay it for good |
+| Where | | |
+| --- | --- | --- |
+| Above the tile | Back | return it to your hand, still turned as you left it |
+| Above the tile | Confirm | lay it for good |
+| Below the tile | ↺ ↻ | turn the tile one side each way |
+
+If the tile lands hard against the top or bottom of the view, the board shifts
+by the smallest amount that gives both rows their space.
 
 You can also pick the waiting tile straight back up and drag it somewhere else.
 While dragging, **tap with a second finger to turn the tile** — on a computer,
