@@ -6,7 +6,7 @@
 <title>Hex Lands</title>
 <meta name="description" content="A turn-based hex tile laying game. Lay the land, then send your animals out into it." />
 <meta name="theme-color" content="#101820" />
-<link rel="stylesheet" href="styles.css?v=0.9.0" />
+<link rel="stylesheet" href="styles.css?v=0.9.1" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -42,7 +42,8 @@
       <p class="note">Some tiles are <b>split down the middle</b> — three sides
         one terrain, three the other. A split tile only counts as a terrain for
         a neighbour that <b>half is facing</b>, so turning it decides what it is
-        worth and to whom. The dot in each half says which is which.</p>
+        worth and to whom. A split tile also <b>seats two animals</b>, one on
+        each side of the split.</p>
 
       <h2 class="label">Special tiles</h2>
       <div class="tile-legend" id="specialRow"></div>
@@ -102,7 +103,7 @@
     </div>
   </div>
 
-  <script src="animals.js?v=0.9.0"></script>
-  <script src="game.js?v=0.9.0"></script>
+  <script src="animals.js?v=0.9.1"></script>
+  <script src="game.js?v=0.9.1"></script>
 </body>
 </html>

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.9.1 — a split tile seats two animals
+
+- The terrain dots on split tiles are gone; the halves speak for themselves.
+- **A split tile now holds two animals, one on each side of the split**, where a
+  plain tile holds one. An animal placed by a card takes the half carrying the
+  terrain its layout asked for, so a frog lands on the rock half and a fish on
+  the water half of the same shore.
+- Tapping a tile that seats two picks up whichever animal is nearer your finger.
+- A tile with any animal on it still cannot be built over.
+
 ## v0.9.0 — facing, reshaping, and rock finds a use
 
 - **The frog now basks on a rock at the water's edge**, so rock has an early use

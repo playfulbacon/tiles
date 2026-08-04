@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.9.0**
+**Current version: v0.9.1**
 
 ## How to play
 
@@ -123,8 +123,8 @@ Sending an animal out and calling it home both score, so a card can be cycled
 again and again — and cycling beats hoarding, since an animal left on the board
 is a card you cannot score with.
 
-Animals may share the land freely but never a single hex, and only one animal
-moves per turn.
+Animals may share the land freely. A plain tile holds one; a tile split down the
+middle holds two, one to each half. Only one animal moves per turn.
 
 ## Changing the cards
 
@@ -167,8 +167,12 @@ other. Unlike before, this is **directional**:
 > it**. On the tile an animal stands on, it simply stands on the half it needs.
 
 So how a split tile is turned decides what it is worth and to whom, which is
-what the turn buttons are for. A dot sits in each half so the facing reads at a
-glance and at any zoom.
+what the turn buttons are for.
+
+A split tile also **seats two animals**, one on each side of the split, where a
+plain tile seats one. An animal placed by a card takes the half carrying the
+terrain its layout called for — a frog on the rock half, a fish on the water
+half of the same shore. Tap the side an animal is on to pick that one up.
 
 ### Laying over land already down
 

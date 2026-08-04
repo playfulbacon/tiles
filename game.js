@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.9.0';
+const VERSION = '0.9.1';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -410,7 +410,7 @@ const state = {
   covered: 0,           // tiles laid over land already down
   lastPlaced: null,
   tokens: new Map(),    // "player:animal" -> { player, animal, at }
-  tokenAt: new Map(),   // "q,r" -> token
+  tokenAt: new Map(),   // "q,r" -> [token], one seat per terrain on the tile
   scores: [],
   showOwners: false,    // mark each tile with the colour of who laid it
   choices: [],          // tiles drawn from the bag this turn, one to be kept
@@ -675,10 +675,10 @@ function confirmPending() {
  * instead, which scores nothing but can save it a long walk. */
 function summonOnSpecial(animal, q, r) {
   const token = myToken(animal);
-  const k = key(q, r);
-  if (state.tokenAt.has(k)) return;
-  if (token.at) {
-    state.tokenAt.delete(key(token.at.q, token.at.r));
+  if (hexFull(q, r)) return;
+  const wasOut = !!token.at;
+  if (wasOut) {
+    liftToken(token);
     showHint(ANIMALS[animal].name + ' comes to the ' + specialNameFor(animal), 2600);
   } else {
     const pts = ANIMALS[animal].place.points;
@@ -686,9 +686,8 @@ function summonOnSpecial(animal, q, r) {
     flashScore('+' + pts, q, r);
     showHint(ANIMALS[animal].name + ' takes the ' + specialNameFor(animal) + '  +' + pts, 2800);
   }
-  token.at = { q, r };
   token.movedAt = performance.now();
-  state.tokenAt.set(k, token);
+  addTokenAt(q, r, token, freeSeat(q, r, null));
 }
 
 function specialNameFor(animal) {
@@ -720,6 +719,61 @@ function endGame() {
  * ------------------------------------------------------------------ */
 
 const tokenKey = (player, animal) => player + ':' + animal;
+
+/* A plain tile seats one animal. A split tile seats two, one on each side of
+ * the split, so a shore can hold the fish in the water and the bear on the
+ * rock at the same time. */
+
+function tokensOn(q, r) {
+  return state.tokenAt.get(key(q, r)) || [];
+}
+
+function seatsOn(q, r) {
+  const tile = state.board.get(key(q, r));
+  return tile ? tile.types.length : 0;
+}
+
+function hexFull(q, r) {
+  return tokensOn(q, r).length >= seatsOn(q, r);
+}
+
+// Which side of the split this animal sits on: the half carrying the terrain
+// its layout called for, or whichever seat is free.
+function freeSeat(q, r, preferType) {
+  const tile = state.board.get(key(q, r));
+  if (!tile) return 0;
+  const taken = new Set(tokensOn(q, r).map((t) => t.seat));
+  if (preferType) {
+    const wanted = tile.types.indexOf(preferType);
+    if (wanted >= 0 && !taken.has(wanted)) return wanted;
+  }
+  for (let i = 0; i < tile.types.length; i++) if (!taken.has(i)) return i;
+  return 0;
+}
+
+function addTokenAt(q, r, token, seat) {
+  const k = key(q, r);
+  const list = state.tokenAt.get(k) || [];
+  token.at = { q, r };
+  token.seat = seat;
+  list.push(token);
+  state.tokenAt.set(k, list);
+}
+
+function liftToken(token) {
+  if (!token.at) return;
+  const k = key(token.at.q, token.at.r);
+  const list = (state.tokenAt.get(k) || []).filter((t) => t !== token);
+  if (list.length) state.tokenAt.set(k, list);
+  else state.tokenAt.delete(k);
+  token.at = null;
+}
+
+// The terrain a card asks for under the animal's own feet.
+function anchorTerrain(pattern) {
+  const anchor = pattern.cells.find(([dq, dr]) => dq === 0 && dr === 0);
+  return anchor && anchor[2].tile ? anchor[2].tile : null;
+}
 
 function initTokens() {
   state.tokens = new Map();
@@ -755,12 +809,10 @@ function cellSatisfied(q, r, req, aq, ar) {
     return terrainOnSide(tile, sideFacing(d)) === req.tile;
   }
   if (req.tier) {
-    const tk = state.tokenAt.get(key(q, r));
-    return !!tk && ANIMALS[tk.animal].tier === req.tier;
+    return tokensOn(q, r).some((tk) => ANIMALS[tk.animal].tier === req.tier);
   }
   if (req.token) {
-    const tk = state.tokenAt.get(key(q, r));
-    return !!tk && tk.animal === req.token;
+    return tokensOn(q, r).some((tk) => tk.animal === req.token);
   }
   return false;
 }
@@ -770,7 +822,7 @@ function placementSpots(animal) {
   const spots = new Set();
   const cells = ANIMALS[animal].place.cells;
   for (const k of state.board.keys()) {
-    if (state.tokenAt.has(k)) continue;
+    if (hexFull(...k.split(',').map(Number))) continue;
     const [q, r] = k.split(',').map(Number);
     if (matchPattern(q, r, cells, cellSatisfied)) spots.add(k);
   }
@@ -783,7 +835,7 @@ function moveSpots(token) {
   if (!token.at) return spots;
   for (const [dq, dr] of DIRS) {
     const k = key(token.at.q + dq, token.at.r + dr);
-    if (state.board.has(k) && !state.tokenAt.has(k)) spots.add(k);
+    if (state.board.has(k) && !hexFull(token.at.q + dq, token.at.r + dr)) spots.add(k);
   }
   return spots;
 }
@@ -822,9 +874,8 @@ function score(player, points) {
 
 function doPlaceToken(animal, q, r) {
   const token = myToken(animal);
-  token.at = { q, r };
   token.movedAt = performance.now();
-  state.tokenAt.set(key(q, r), token);
+  addTokenAt(q, r, token, freeSeat(q, r, anchorTerrain(ANIMALS[animal].place)));
   score(state.current, ANIMALS[animal].place.points);
   flashScore('+' + ANIMALS[animal].place.points, q, r);
   spendAnimalMove();
@@ -832,18 +883,16 @@ function doPlaceToken(animal, q, r) {
 
 function doMoveToken(animal, q, r) {
   const token = myToken(animal);
-  state.tokenAt.delete(key(token.at.q, token.at.r));
-  token.at = { q, r };
+  liftToken(token);
   token.movedAt = performance.now();
-  state.tokenAt.set(key(q, r), token);
+  addTokenAt(q, r, token, freeSeat(q, r, null));
   spendAnimalMove();
 }
 
 function doReturnToken(animal) {
   const token = myToken(animal);
   const { q, r } = token.at;
-  state.tokenAt.delete(key(q, r));
-  token.at = null;
+  liftToken(token);
   token.movedAt = performance.now();
   score(state.current, ANIMALS[animal].ret.points);
   flashScore('+' + ANIMALS[animal].ret.points, q, r);
@@ -1033,7 +1082,6 @@ function drawBoard(now) {
 
     // Mixed tiles carry a pip per terrain, so the rule stays readable even
     // when the art is small or the terrains look alike at a glance.
-    drawTypePips(ctx, tile, s.x, s.y, size);
 
     // Owner pip: who laid this tile. Off unless asked for.
     if (state.showOwners && state.players > 1) {
@@ -1047,32 +1095,6 @@ function drawBoard(now) {
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.stroke();
     }
-  }
-}
-
-/* A dot sitting in the middle of each half, so which sides carry which terrain
- * reads at a glance and follows the tile when it is turned. */
-function drawTypePips(c, tile, cx, cy, size) {
-  if (!tile.types[1]) return;
-  const pr = Math.max(2.4, size * 0.1);
-  const sides = tile.sides || HALF;
-  // The second terrain covers local sides 0 to sides-1, centred on that arc.
-  const mid = (Math.PI / 3) * (sides / 2) + (Math.PI / 3) * (tile.rot || 0);
-  const halves = [
-    { type: tile.types[1], a: mid },
-    { type: tile.types[0], a: mid + Math.PI },
-  ];
-  for (const h of halves) {
-    const x = cx + Math.cos(h.a) * size * 0.46;
-    const y = cy + Math.sin(h.a) * size * 0.46;
-    c.beginPath();
-    c.arc(x, y, pr * 1.5, 0, Math.PI * 2);
-    c.fillStyle = 'rgba(8,14,20,0.5)';
-    c.fill();
-    c.beginPath();
-    c.arc(x, y, pr, 0, Math.PI * 2);
-    c.fillStyle = TYPES[h.type].light;
-    c.fill();
   }
 }
 
@@ -1251,7 +1273,6 @@ function drawHeld(now) {
   drawTileArt(ctx, held, held.x, held.y + bob, size);
   drawSpecialMark(ctx, held, held.x, held.y + bob, size);
   ctx.restore();
-  drawTypePips(ctx, held, held.x, held.y + bob, size);
 
 }
 
@@ -1328,7 +1349,6 @@ function drawChoices(now, lay) {
     ctx.shadowBlur = 12;
     ctx.shadowOffsetY = 4;
     drawTileArt(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
-    drawTypePips(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
     drawSpecialMark(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
     ctx.restore();
     if (card.special) {
@@ -1350,12 +1370,32 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
+/* Where an animal stands on its tile. A plain tile seats it in the middle; on
+ * a split tile each animal sits within its own half. */
+function seatOffset(tile, seat, size) {
+  if (!tile || tile.types.length < 2) return { dx: 0, dy: 0, scale: 0.62 };
+  const sides = tile.sides || HALF;
+  const mid = (Math.PI / 3) * (sides / 2) + (Math.PI / 3) * (tile.rot || 0);
+  const a = seat === 1 ? mid : mid + Math.PI;
+  return { dx: Math.cos(a) * size * 0.4, dy: Math.sin(a) * size * 0.4, scale: 0.46 };
+}
+
+function tokenScreenPos(token) {
+  const tile = state.board.get(key(token.at.q, token.at.r));
+  const size = HEX_SIZE * state.camera.scale;
+  const p = hexToPixel(token.at.q, token.at.r, HEX_SIZE);
+  const s = worldToScreen(p.x, p.y);
+  const off = seatOffset(tile, token.seat, size);
+  return { x: s.x + off.dx, y: s.y + off.dy, size: size * off.scale };
+}
+
 function drawTokensOnBoard(now) {
   const size = HEX_SIZE * state.camera.scale;
-  for (const token of state.tokenAt.values()) {
+  for (const list of state.tokenAt.values()) {
+   for (const token of list) {
     if (state.tokenDrag && state.tokenDrag.token === token) continue;
-    const p = hexToPixel(token.at.q, token.at.r, HEX_SIZE);
-    const s = worldToScreen(p.x, p.y);
+    const seatPos = tokenScreenPos(token);
+    const s = { x: seatPos.x, y: seatPos.y };
     if (s.x < -size || s.x > W + size || s.y < -size || s.y > H + size) continue;
 
     const age = (now - token.movedAt) / 320;
@@ -1367,8 +1407,9 @@ function drawTokensOnBoard(now) {
       ? (state.sel.canReturn ? `rgba(126,225,150,${0.55 + pulse * 0.45})`
         : `rgba(160,235,255,${0.5 + pulse * 0.5})`)
       : null;
-    drawToken(ctx, token.animal, s.x, s.y - size * 0.06 - hop, size * 0.62,
+    drawToken(ctx, token.animal, s.x, s.y - size * 0.04 - hop, seatPos.size,
       PLAYER_COLORS[token.player % PLAYER_COLORS.length], { ring });
+   }
   }
 }
 
@@ -1735,7 +1776,6 @@ function drawPendingTile(now) {
   drawTileArt(ctx, p, s.x, s.y, size, 0.92);
   drawSpecialMark(ctx, p, s.x, s.y, size, 0.92);
   ctx.restore();
-  drawTypePips(ctx, p, s.x, s.y, size);
 
   ctx.save();
   ctx.setLineDash([size * 0.2, size * 0.14]);
@@ -1869,8 +1909,18 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.clientY < trayTop() && !state.turn.animalMoved) {
     // Picking up one of your own animals already out on the land.
     const h = hexAtScreen(e.clientX, e.clientY);
-    const tk = state.tokenAt.get(key(h.q, h.r));
-    if (tk && tk.player === state.current) {
+    const here = tokensOn(h.q, h.r).filter((t) => t.player === state.current);
+    let tk = here[0];
+    if (here.length > 1) {
+      // Two animals on one tile: take whichever is nearer the finger.
+      let best = Infinity;
+      for (const t of here) {
+        const pos = tokenScreenPos(t);
+        const d2 = (pos.x - e.clientX) ** 2 + (pos.y - e.clientY) ** 2;
+        if (d2 < best) { best = d2; tk = t; }
+      }
+    }
+    if (tk) {
       selectAnimal(tk.animal);
       state.tokenDrag = { animal: tk.animal, token: tk, from: 'board', x: e.clientX, y: e.clientY };
       hideHint();
@@ -1974,7 +2024,7 @@ function tapBoard(e) {
   if (sel.spots.has(k)) {
     if (sel.onBoard) doMoveToken(sel.animal, h.q, h.r);
     else doPlaceToken(sel.animal, h.q, h.r);
-  } else if (!state.tokenAt.has(k)) {
+  } else if (!tokensOn(h.q, h.r).length) {
     state.sel = null;
   }
 }
@@ -2237,7 +2287,6 @@ function buildSplitRow() {
     const c = cv.getContext('2d');
     const tile = { types: mix, variant: 0, rot: 4, sides: HALF };
     drawTileArt(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
-    drawTypePips(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
     item.appendChild(cv);
     const label = document.createElement('span');
     label.textContent = TYPES[mix[0]].name + ' / ' + TYPES[mix[1]].name;
@@ -2427,6 +2476,7 @@ window.__debug = {
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
   recomputeValid, spendAnimalMove, cancelPending, confirmPending, setPending,
   chooseTile, summonOnSpecial, SPECIALS, terrainOnSide, isOverlay,
+  tokensOn, hexFull, seatsOn, freeSeat,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
 
