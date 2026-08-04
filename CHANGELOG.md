@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.6.0 — tiles with two terrains
+
+- Some tiles now carry two terrains: rocky shore, reeds, muddy bank, outcrop,
+  scree and worn ground. **Any terrain on a tile counts**, so a water and rock
+  tile is a water tile and a rock tile, and one tile can be the water in one
+  animal's layout and the dirt in another's.
+- Because a tile's terrains are unordered, where the second terrain sits on the
+  hex is cosmetic. The seam wanders differently on every tile and never changes
+  what the tile does.
+- Mixed tiles carry a dot per terrain along the top edge, on a dark plate so
+  they read over any ground, and the title screen shows examples with the rule.
+- Deck is still 60 tiles: 12 of each plain terrain plus 2 of each of the six
+  pairs, which keeps the supply even at 18 tiles carrying each terrain.
+- Balance: mixed tiles substantially loosen the mid and late game. In two
+  player simulations the mid tier went from roughly one animal placed per game
+  to ten, the first late animal now arrives around turn 24 rather than 47, and
+  final scores roughly doubled.
+
 ## v0.5.0 — named animals instead of tiers
 
 - Frogs now go out onto water with dirt alongside; fish onto two connected

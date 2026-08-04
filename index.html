@@ -6,7 +6,7 @@
 <title>Hex Lands</title>
 <meta name="description" content="A turn-based hex tile laying game. Lay the land, then send your animals out into it." />
 <meta name="theme-color" content="#101820" />
-<link rel="stylesheet" href="styles.css?v=0.5.0" />
+<link rel="stylesheet" href="styles.css?v=0.6.0" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -36,6 +36,13 @@
       <p class="tagline">Lay the land tile by tile, then send your animals out to live in it.</p>
 
       <div class="tile-legend" id="legend"></div>
+
+      <h2 class="label">Mixed tiles</h2>
+      <div class="tile-legend three" id="mixedRow"></div>
+      <p class="note">Some tiles carry two terrains. <b>Any terrain on a tile
+        counts</b> — a water and rock tile is a water tile <i>and</i> a rock
+        tile, so it can play either part of a layout. The dots along its top
+        edge say which.</p>
 
       <h2 class="label">Animals</h2>
       <div class="animal-row" id="animalRow"></div>
@@ -75,7 +82,7 @@
     </div>
   </div>
 
-  <script src="animals.js?v=0.5.0"></script>
-  <script src="game.js?v=0.5.0"></script>
+  <script src="animals.js?v=0.6.0"></script>
+  <script src="game.js?v=0.6.0"></script>
 </body>
 </html>

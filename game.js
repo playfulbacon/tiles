@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -39,8 +39,32 @@ const TYPES = {
 };
 
 const TYPE_KEYS = Object.keys(TYPES);
-const COPIES_PER_TYPE = 15;
+
+/* A tile carries one terrain, or two. Any terrain on a tile counts for the
+ * rules, so a water and rock tile is a water tile AND a rock tile - which
+ * means where the second terrain sits on the hex is purely cosmetic, and the
+ * art can vary freely without changing what the tile does. */
+const MIXES = [
+  ['water', 'rock'],    // a rocky shore
+  ['water', 'grass'],   // reeds and marsh
+  ['water', 'dirt'],    // a muddy bank
+  ['rock', 'grass'],    // an outcrop in the meadow
+  ['rock', 'dirt'],     // scree and gravel
+  ['grass', 'dirt'],    // worn ground
+];
+
+const COPIES_PER_TYPE = 12;   // 48 single terrain tiles
+const COPIES_PER_MIX = 2;     // 12 mixed tiles, 60 in all
 const VARIANTS = 3;
+
+const comboKey = (types) => types.join('+');
+const ALL_COMBOS = TYPE_KEYS.map((t) => [t]).concat(MIXES);
+
+// "Water" or "Water & rock", for hints and labels.
+function terrainName(types) {
+  if (types.length === 1) return TYPES[types[0]].name;
+  return TYPES[types[0]].name + ' & ' + TYPES[types[1]].name.toLowerCase();
+}
 
 const PLAYER_COLORS = [
   '#f2c14e', '#e8724c', '#6fc3df', '#b98ce0', '#7fd18a', '#f291c4',
@@ -132,33 +156,15 @@ const SPRITE_R = 128;
 const sprites = {};
 
 function buildSprites() {
-  for (const type of TYPE_KEYS) {
-    sprites[type] = [];
-    for (let v = 0; v < VARIANTS; v++) {
-      sprites[type].push(makeSprite(type, v));
-    }
+  for (const combo of ALL_COMBOS) {
+    const k = comboKey(combo);
+    sprites[k] = [];
+    for (let v = 0; v < VARIANTS; v++) sprites[k].push(makeSprite(combo, v));
   }
 }
 
-function makeSprite(type, variant) {
-  const R = SPRITE_R;
-  const pad = 6;
-  const w = Math.ceil(2 * R) + pad * 2;
-  const h = Math.ceil(SQRT3 * R) + pad * 2;
-  const cv = document.createElement('canvas');
-  cv.width = w;
-  cv.height = h;
-  const c = cv.getContext('2d');
-  const cx = w / 2;
-  const cy = h / 2;
+function paintTerrain(c, type, cx, cy, R, w, h, rand) {
   const t = TYPES[type];
-  const rand = makeRng(hashString(type + ':' + variant) || 7);
-
-  c.save();
-  traceHex(c, cx, cy, R);
-  c.clip();
-
-  // Base fill with a soft top light.
   const g = c.createLinearGradient(0, cy - R, 0, cy + R);
   g.addColorStop(0, t.top);
   g.addColorStop(1, t.base);
@@ -169,6 +175,64 @@ function makeSprite(type, variant) {
   else if (type === 'rock') paintRock(c, cx, cy, R, t, rand);
   else if (type === 'grass') paintGrass(c, cx, cy, R, t, rand);
   else paintDirt(c, cx, cy, R, t, rand);
+}
+
+/* The region the second terrain occupies: everything past a wandering line
+ * across the hex. Position and angle are cosmetic, so they vary by variant. */
+function lobePath(c, cx, cy, R, rand) {
+  const angle = rand() * Math.PI * 2;
+  const dist = R * (-0.1 + rand() * 0.3);
+  const nx = Math.cos(angle), ny = Math.sin(angle);
+  const px = -ny, py = nx;
+  const L = R * 2.6;
+  const wobble = R * (0.06 + rand() * 0.07);
+  const phase = rand() * 6;
+  c.beginPath();
+  for (let i = 0; i <= 26; i++) {
+    const u = -L / 2 + (i / 26) * L;
+    const d = dist + Math.sin(u / (R * 0.34) + phase) * wobble;
+    const x = cx + nx * d + px * u;
+    const y = cy + ny * d + py * u;
+    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+  }
+  c.lineTo(cx + nx * R * 3 + px * L / 2, cy + ny * R * 3 + py * L / 2);
+  c.lineTo(cx + nx * R * 3 - px * L / 2, cy + ny * R * 3 - py * L / 2);
+  c.closePath();
+}
+
+function makeSprite(types, variant) {
+  const R = SPRITE_R;
+  const pad = 6;
+  const w = Math.ceil(2 * R) + pad * 2;
+  const h = Math.ceil(SQRT3 * R) + pad * 2;
+  const cv = document.createElement('canvas');
+  cv.width = w;
+  cv.height = h;
+  const c = cv.getContext('2d');
+  const cx = w / 2;
+  const cy = h / 2;
+  const rand = makeRng(hashString(comboKey(types) + ':' + variant) || 7);
+
+  c.save();
+  traceHex(c, cx, cy, R);
+  c.clip();
+
+  paintTerrain(c, types[0], cx, cy, R, w, h, rand);
+
+  if (types[1]) {
+    const shape = makeRng(hashString(comboKey(types) + ':lobe:' + variant) || 11);
+    c.save();
+    lobePath(c, cx, cy, R, shape);
+    c.clip();
+    paintTerrain(c, types[1], cx, cy, R, w, h, rand);
+    c.restore();
+    // A seam so the two terrains read as one tile rather than two.
+    const seam = makeRng(hashString(comboKey(types) + ':lobe:' + variant) || 11);
+    lobePath(c, cx, cy, R, seam);
+    c.lineWidth = 4;
+    c.strokeStyle = 'rgba(12,18,24,0.42)';
+    c.stroke();
+  }
 
   // Inner shading so tiles read as separate pieces.
   const vig = c.createRadialGradient(cx, cy, R * 0.55, cx, cy, R * 1.05);
@@ -181,7 +245,7 @@ function makeSprite(type, variant) {
   // Rim.
   traceHex(c, cx, cy, R - 1);
   c.lineWidth = 5;
-  c.strokeStyle = t.ink;
+  c.strokeStyle = TYPES[types[0]].ink;
   c.stroke();
   traceHex(c, cx, cy, R - 5);
   c.lineWidth = 2;
@@ -389,7 +453,12 @@ function buildDeck() {
   const deck = [];
   for (const type of TYPE_KEYS) {
     for (let i = 0; i < COPIES_PER_TYPE; i++) {
-      deck.push({ type, variant: Math.floor(Math.random() * VARIANTS) });
+      deck.push({ types: [type], variant: Math.floor(Math.random() * VARIANTS) });
+    }
+  }
+  for (const mix of MIXES) {
+    for (let i = 0; i < COPIES_PER_MIX; i++) {
+      deck.push({ types: mix.slice(), variant: Math.floor(Math.random() * VARIANTS) });
     }
   }
   // Fisher-Yates.
@@ -429,7 +498,7 @@ function drawTile() {
   const card = state.deck.pop();
   const home = heldHome();
   state.held = {
-    type: card.type,
+    types: card.types,
     variant: card.variant,
     x: home.x,
     y: home.y,
@@ -468,12 +537,12 @@ function placeTile(q, r) {
   const held = state.held;
   state.board.set(key(q, r), {
     q, r,
-    type: held.type,
+    types: held.types,
     variant: held.variant,
     owner: state.current,
     placedAt: performance.now(),
   });
-  state.placedCount[held.type]++;
+  for (const type of held.types) state.placedCount[type]++;
   state.lastPlaced = key(q, r);
   state.held = null;
   state.turn.tileLaid = true;
@@ -545,7 +614,8 @@ function myToken(animal) {
 function cellSatisfied(q, r, req) {
   if (req.tile) {
     const tile = state.board.get(key(q, r));
-    return !!tile && (req.tile === 'any' || tile.type === req.tile);
+    // Any terrain on the tile counts, so a water and rock tile is both.
+    return !!tile && (req.tile === 'any' || tile.types.includes(req.tile));
   }
   if (req.tier) {
     const tk = state.tokenAt.get(key(q, r));
@@ -728,8 +798,8 @@ function drawBackground() {
   ctx.restore();
 }
 
-function drawSprite(type, variant, cx, cy, size, alpha) {
-  const sp = sprites[type][variant % VARIANTS];
+function drawSprite(types, variant, cx, cy, size, alpha) {
+  const sp = sprites[comboKey(types)][variant % VARIANTS];
   const scale = size / SPRITE_R;
   const w = sp.width * scale;
   const h = sp.height * scale;
@@ -753,8 +823,12 @@ function drawBoard(now) {
     ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = size * 0.18;
     ctx.shadowOffsetY = size * 0.06;
-    drawSprite(tile.type, tile.variant, s.x, s.y, size * grow);
+    drawSprite(tile.types, tile.variant, s.x, s.y, size * grow);
     ctx.restore();
+
+    // Mixed tiles carry a pip per terrain, so the rule stays readable even
+    // when the art is small or the terrains look alike at a glance.
+    if (tile.types.length > 1) drawTypePips(tile.types, s.x, s.y, size);
 
     // Owner pip.
     if (state.players > 1) {
@@ -769,6 +843,26 @@ function drawBoard(now) {
       ctx.stroke();
     }
   }
+}
+
+// Small terrain dots along the top of a mixed tile.
+function drawTypePips(types, cx, cy, size) {
+  const pr = Math.max(2.8, size * 0.088);
+  const gap = pr * 2.4;
+  const y = cy - size * 0.52;
+  // A dark plate behind the dots so they read over any terrain.
+  ctx.beginPath();
+  const w = gap * (types.length - 1) + pr * 2;
+  roundRect(cx - w / 2 - pr * 0.5, y - pr * 1.35, w + pr, pr * 2.7, pr * 1.35);
+  ctx.fillStyle = 'rgba(8,14,20,0.55)';
+  ctx.fill();
+  types.forEach((type, i) => {
+    const x = cx + (i - (types.length - 1) / 2) * gap;
+    ctx.beginPath();
+    ctx.arc(x, y, pr, 0, Math.PI * 2);
+    ctx.fillStyle = TYPES[type].light;
+    ctx.fill();
+  });
 }
 
 function easeOutBack(t) {
@@ -908,15 +1002,16 @@ function drawHeld(now) {
     const [q, r] = state.hoverKey.split(',').map(Number);
     const p = hexToPixel(q, r, HEX_SIZE);
     const s = worldToScreen(p.x, p.y);
-    drawSprite(held.type, held.variant, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
+    drawSprite(held.types, held.variant, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
   }
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.5)';
   ctx.shadowBlur = held.dragging ? 26 : 14;
   ctx.shadowOffsetY = held.dragging ? 12 : 5;
-  drawSprite(held.type, held.variant, held.x, held.y + bob, size);
+  drawSprite(held.types, held.variant, held.x, held.y + bob, size);
   ctx.restore();
+  if (held.types.length > 1) drawTypePips(held.types, held.x, held.y + bob, size);
 
 }
 
@@ -1644,17 +1739,51 @@ function buildLegend(el, counts) {
     cv.width = 104;
     cv.height = 90;
     const c = cv.getContext('2d');
-    const sp = sprites[type][0];
-    c.drawImage(sp, 0, 0, cv.width, cv.height);
+    c.drawImage(sprites[comboKey([type])][0], 0, 0, cv.width, cv.height);
     item.appendChild(cv);
     const label = document.createElement('span');
     label.textContent = TYPES[type].name;
     item.appendChild(label);
     if (counts) {
       const b = document.createElement('b');
-      b.textContent = counts[type] + ' placed';
+      // Mixed tiles count for both their terrains, so these overlap.
+      b.textContent = counts[type] + ' tiles';
       item.appendChild(b);
     }
+    el.appendChild(item);
+  }
+}
+
+// The title screen shows what a two terrain tile looks like and what it means.
+function buildMixedRow() {
+  const el = document.getElementById('mixedRow');
+  if (!el) return;
+  el.innerHTML = '';
+  for (const mix of [['water', 'rock'], ['rock', 'grass'], ['grass', 'dirt']]) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    const cv = document.createElement('canvas');
+    cv.width = 104;
+    cv.height = 90;
+    const c = cv.getContext('2d');
+    c.drawImage(sprites[comboKey(mix)][0], 0, 0, cv.width, cv.height);
+    // The same pips the board draws.
+    const pr = 6.5, gap = pr * 2.4, py = 17;
+    c.beginPath();
+    const w = gap + pr * 2;
+    c.roundRect(cv.width / 2 - w / 2 - pr * 0.5, py - pr * 1.35, w + pr, pr * 2.7, pr * 1.35);
+    c.fillStyle = 'rgba(8,14,20,0.55)';
+    c.fill();
+    mix.forEach((type, i) => {
+      c.beginPath();
+      c.arc(cv.width / 2 + (i - 0.5) * gap, py, pr, 0, Math.PI * 2);
+      c.fillStyle = TYPES[type].light;
+      c.fill();
+    });
+    item.appendChild(cv);
+    const label = document.createElement('span');
+    label.textContent = TYPES[mix[0]].name + ' + ' + TYPES[mix[1]].name;
+    item.appendChild(label);
     el.appendChild(item);
   }
 }
@@ -1752,6 +1881,7 @@ if (cardProblems.length) {
 
 buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
+buildMixedRow();
 buildAnimalRow();
 
 for (const id of ['hudVersion', 'titleVersion', 'overVersion']) {

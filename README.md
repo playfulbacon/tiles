@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.5.0**
+**Current version: v0.6.0**
 
 ## How to play
 
@@ -128,6 +128,28 @@ throwing, so a bad card can never spoil a game in progress. It checks that:
 | Rock  | Grey with angular facets and cracks         |
 | Grass | Green with scattered tufts                  |
 | Dirt  | Brown with soil patches, furrows and pebbles |
+
+### Mixed tiles
+
+Some tiles carry **two** terrains — a rocky shore, reeds at the water's edge,
+an outcrop in the meadow. The rule is one sentence:
+
+> **Any terrain on a tile counts.** A water and rock tile is a water tile *and*
+> a rock tile.
+
+So a mixed tile can play either part of a layout, and the same tile can be the
+water in one animal's layout and the dirt in another's. They are the flexible
+ground everyone wants, and worth thinking about before you hand one to the
+board.
+
+Because a tile's terrains are unordered, **where the second terrain sits on the
+hex is purely cosmetic** — the seam wanders differently on every tile and never
+changes what the tile does. Mixed tiles carry a dot per terrain along their top
+edge, so the rule stays readable when the board is zoomed out or a terrain is
+only a sliver.
+
+The deck holds 60 tiles: 12 each of the four plain terrains, plus 2 of each of
+the six pairs. That leaves the supply even — 18 tiles carry each terrain.
 
 The deck holds 15 of each type, 60 tiles in total, shuffled every game. Each
 type has three visual variants so a large map does not look repetitive.
