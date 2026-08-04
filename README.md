@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.7.1**
+**Current version: v0.8.0**
 
 ## How to play
 
@@ -15,8 +15,12 @@ whenever you like, including on someone else's turn.
 
 ### Lay a tile (required)
 
-The top tile is drawn automatically and sits beside the deck. Press and drag it
-onto the board.
+At the start of your turn a few tiles come out of the **bag** and sit on a shelf
+above your hand. **Keep one** — the rest go straight back in and the bag is
+shuffled, so nobody can track what is left beyond the count. How many you draw
+from is set on the title screen (2, 3 or 4).
+
+Take your tile and drag it onto the board.
 
 - The **first** tile of the game can go anywhere.
 - Every tile after that must touch a tile already on the board. Valid spots are
@@ -147,36 +151,25 @@ throwing, so a bad card can never spoil a game in progress. It checks that:
 | Grass | Green with scattered tufts                  |
 | Dirt  | Brown with soil patches, furrows and pebbles |
 
-### Mixed tiles
+### Special tiles
 
-Some tiles carry **two** terrains — a rocky shore, reeds at the water's edge,
-an outcrop in the meadow. The rule is one sentence:
+Four of the sixty tiles are **special**. Lay one and its animal steps straight
+onto it, with no layout to satisfy — and it does **not** spend your animal move
+for the turn.
 
-> **Any terrain on a tile counts.** A water and rock tile is a water tile *and*
-> a rock tile.
+| Tile | Terrain | Brings |
+| ---- | ------- | ------ |
+| Burrow | dirt | Worm |
+| Spring | water | Fish |
+| Thicket | grass | Spider |
+| Den | rock | Bear |
 
-So a mixed tile can play either part of a layout, and the same tile can be the
-water in one animal's layout and the dirt in another's. They are the flexible
-ground everyone wants, and worth thinking about before you hand one to the
-board.
+Laying one scores that animal's go out points. If the animal is already out on
+the land it simply comes to the new tile instead, which scores nothing but can
+save it a long walk.
 
-On a mixed tile the two terrains divide along the **six sides of the hex**: the
-boundary runs from the centre out to a corner, so every side belongs wholly to
-one terrain or the other, and the second terrain owns two or three of them.
-Turning a tile changes which way those sides face.
-
-Because *any* terrain on a tile counts, **turning a tile never changes what it
-counts as** — it is a matter of how the landscape reads, not of what the tile
-does. That keeps the rule to one sentence and leaves you free to line a shore
-up with the shore next to it.
-
-Mixed tiles carry a dot per terrain along their top edge, so the rule stays
-readable when the board is zoomed out or a terrain faces away from you.
-
-The deck holds 60 tiles: 12 each of the four plain terrains, plus 2 of each of
-the six pairs. That leaves the supply even — 18 tiles carry each terrain. Every
-tile is drawn at a random facing, and each terrain has three visual variants so
-a large map does not look repetitive.
+The bag holds 60 tiles: 15 carrying each terrain, four of which are the specials
+above.
 
 ## Running it
 

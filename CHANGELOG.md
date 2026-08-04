@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.8.0 — a bag to draw from, and special tiles
+
+- **Mixed tiles are gone.** Every tile carries one terrain again.
+- Tiles now come from a **bag**. At the start of a turn you draw two, three or
+  four (your choice on the title screen) and keep one; the rest go back in and
+  the bag is shuffled, so the count is all anyone can track. Exactly one tile
+  leaves the bag per turn, so a game is still sixty turns.
+- Four tiles in sixty are **special**: a burrow brings a worm, a spring a fish,
+  a thicket a spider, a den a bear. Laying one puts that animal straight onto it
+  with no layout to satisfy, scores its go out points, and does not spend the
+  turn's animal move. If the animal is already out it comes to the new tile
+  instead, scoring nothing.
+- The tiles remaining count now includes tiles on the shelf and in hand, so it
+  always reads as tiles not yet on the board.
+- With no tile carrying two terrains, nothing on a tile has a facing worth
+  choosing, so the turn buttons no longer appear. The rotation code and both
+  gestures are untouched and return the moment tiles have sides again.
+
 ## v0.7.1 — the pending tile's controls sit on two levels
 
 - Back and Confirm now sit **above** the pending tile, the turn buttons

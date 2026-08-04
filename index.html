@@ -6,7 +6,7 @@
 <title>Hex Lands</title>
 <meta name="description" content="A turn-based hex tile laying game. Lay the land, then send your animals out into it." />
 <meta name="theme-color" content="#101820" />
-<link rel="stylesheet" href="styles.css?v=0.7.1" />
+<link rel="stylesheet" href="styles.css?v=0.8.0" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -37,12 +37,11 @@
 
       <div class="tile-legend" id="legend"></div>
 
-      <h2 class="label">Mixed tiles</h2>
-      <div class="tile-legend three" id="mixedRow"></div>
-      <p class="note">Some tiles carry two terrains. <b>Any terrain on a tile
-        counts</b> — a water and rock tile is a water tile <i>and</i> a rock
-        tile, so it can play either part of a layout. The dots along its top
-        edge say which.</p>
+      <h2 class="label">Special tiles</h2>
+      <div class="tile-legend" id="specialRow"></div>
+      <p class="note">Four tiles in the bag are <b>special</b>. Lay one and its
+        animal steps straight onto it — no layout to satisfy, and it does not
+        spend your animal move for the turn.</p>
 
       <h2 class="label">Animals</h2>
       <div class="animal-row" id="animalRow"></div>
@@ -50,13 +49,16 @@
       <h2 class="label">Players</h2>
       <div class="player-picker" id="playerPicker"></div>
 
+      <h2 class="label">Tiles to choose from</h2>
+      <div class="player-picker" id="drawPicker"></div>
+
       <button id="startBtn" class="primary-btn">Start Game</button>
 
       <p class="howto">
-        <b>Lay a tile.</b> The first can go anywhere; after that every tile must
-        touch the land already on the board. Drop it and it waits: turn it with
-        the arrows, then confirm, or send it back. While dragging you can turn
-        it with a second finger, or the right mouse button.<br />
+        <b>Lay a tile.</b> Draw a few from the bag and keep one — the rest go
+        back and the bag is shuffled. The first tile can go anywhere; after that
+        every tile must touch the land already on the board. Drop it and it
+        waits: confirm it, or send it back.<br />
         <b>Then move one animal.</b> Each card shows the layout of land needed
         to send that animal out, and the layout needed to call it home. Both
         score. Otherwise walk one animal a single tile, and wait.<br />
@@ -84,7 +86,7 @@
     </div>
   </div>
 
-  <script src="animals.js?v=0.7.1"></script>
-  <script src="game.js?v=0.7.1"></script>
+  <script src="animals.js?v=0.8.0"></script>
+  <script src="game.js?v=0.8.0"></script>
 </body>
 </html>

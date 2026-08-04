@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.7.1';
+const VERSION = '0.8.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -40,22 +40,22 @@ const TYPES = {
 
 const TYPE_KEYS = Object.keys(TYPES);
 
-/* A tile carries one terrain, or two. Any terrain on a tile counts for the
- * rules, so a water and rock tile is a water tile AND a rock tile - which
- * means where the second terrain sits on the hex is purely cosmetic, and the
- * art can vary freely without changing what the tile does. */
-const MIXES = [
-  ['water', 'rock'],    // a rocky shore
-  ['water', 'grass'],   // reeds and marsh
-  ['water', 'dirt'],    // a muddy bank
-  ['rock', 'grass'],    // an outcrop in the meadow
-  ['rock', 'dirt'],     // scree and gravel
-  ['grass', 'dirt'],    // worn ground
+/* The bag holds 60 tiles. Fourteen of each terrain, plus four special tiles
+ * that bring an animal with them. */
+const COPIES_PER_TYPE = 14;
+
+/* Special tiles. Laying one puts that animal straight onto it, with no layout
+ * to satisfy - a burrow is a worm's, a spring holds fish, a den is a bear's.
+ * They are rare on purpose: four tiles in sixty. */
+const SPECIALS = [
+  { type: 'dirt', animal: 'worm', name: 'Burrow' },
+  { type: 'water', animal: 'fish', name: 'Spring' },
+  { type: 'grass', animal: 'spider', name: 'Thicket' },
+  { type: 'rock', animal: 'bear', name: 'Den' },
 ];
 
-const COPIES_PER_TYPE = 12;   // 48 single terrain tiles
-const COPIES_PER_MIX = 2;     // 12 mixed tiles, 60 in all
-const SIDE_SPLITS = [2, 3];   // how many of the six sides the second terrain owns
+// How many tiles a player draws to choose from. Set on the title screen.
+const DRAW_CHOICES = [2, 3, 4];
 const VARIANTS = 3;
 
 const comboKey = (types) => types.join('+');
@@ -377,6 +377,8 @@ const state = {
   tokens: new Map(),    // "player:animal" -> { player, animal, at }
   tokenAt: new Map(),   // "q,r" -> token
   scores: [],
+  choices: [],          // tiles drawn from the bag this turn, one to be kept
+  drawCount: 3,         // how many come out of the bag each turn
   pending: null,        // a tile dropped but not yet confirmed
   sel: null,            // { animal, onBoard, spots:Set, canReturn }
   ready: {},            // animal -> is its next action available right now
@@ -414,28 +416,25 @@ function safeBottom() {
 function buildDeck() {
   const deck = [];
   const spin = () => Math.floor(Math.random() * 6);
+  const card = (type, extra) => Object.assign({
+    types: [type], variant: Math.floor(Math.random() * VARIANTS), rot: spin(), sides: 0,
+  }, extra);
+
   for (const type of TYPE_KEYS) {
-    for (let i = 0; i < COPIES_PER_TYPE; i++) {
-      deck.push({
-        types: [type], variant: Math.floor(Math.random() * VARIANTS),
-        rot: spin(), sides: 0,
-      });
-    }
+    for (let i = 0; i < COPIES_PER_TYPE; i++) deck.push(card(type));
   }
-  for (const mix of MIXES) {
-    for (let i = 0; i < COPIES_PER_MIX; i++) {
-      deck.push({
-        types: mix.slice(), variant: Math.floor(Math.random() * VARIANTS),
-        rot: spin(), sides: SIDE_SPLITS[Math.floor(Math.random() * SIDE_SPLITS.length)],
-      });
-    }
-  }
-  // Fisher-Yates.
-  for (let i = deck.length - 1; i > 0; i--) {
+  for (const sp of SPECIALS) deck.push(card(sp.type, { special: sp.animal, specialName: sp.name }));
+  return shuffle(deck);
+}
+
+// The bag: everything unpicked goes back in and it is shuffled again, so no
+// one can track what is left beyond the count.
+function shuffle(bag) {
+  for (let i = bag.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
+    [bag[i], bag[j]] = [bag[j], bag[i]];
   }
-  return deck;
+  return bag;
 }
 
 function startGame(players) {
@@ -452,6 +451,7 @@ function startGame(players) {
   state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
   state.pending = null;
+  state.choices = [];
   state.tokenDrag = null;
   flashes.length = 0;
   initTokens();
@@ -465,13 +465,31 @@ function drawTile() {
     endGame();
     return;
   }
-  const card = state.deck.pop();
+  // Pull a few out of the bag; the player keeps one and the rest go back.
+  const n = Math.min(state.drawCount, state.deck.length);
+  state.choices = state.deck.splice(state.deck.length - n, n);
+  state.held = null;
+  recomputeValid();
+  positionHint();
+  syncHud();
+}
+
+function chooseTile(index) {
+  const card = state.choices[index];
+  if (!card) return;
+  const rest = state.choices.filter((c, i) => i !== index);
+  state.deck.push(...rest);
+  shuffle(state.deck);
+  state.choices = [];
+  positionHint();
   const home = heldHome();
   state.held = {
     types: card.types,
     variant: card.variant,
     rot: card.rot,
     sides: card.sides,
+    special: card.special,
+    specialName: card.specialName,
     x: home.x,
     y: home.y,
     dragging: false,
@@ -480,8 +498,8 @@ function drawTile() {
     bornAt: performance.now(),
     returning: null,
   };
-  recomputeValid();
   syncHud();
+  return state.held;
 }
 
 function recomputeValid() {
@@ -522,6 +540,7 @@ function placeTile(q, r, tile) {
   state.held = null;
   state.pending = null;
   state.turn.tileLaid = true;
+  if (held.special) summonOnSpecial(held.special, q, r);
   // New land can open or close animal moves, so recheck the cards.
   refreshReady();
   refreshSelection();
@@ -546,6 +565,7 @@ function endTurn() {
   state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
   state.pending = null;
+  state.choices = [];
   state.tokenDrag = null;
   state.current = (state.current + 1) % state.players;
   if (!state.deck.length) endGame();
@@ -596,6 +616,33 @@ function confirmPending() {
   const p = state.pending;
   if (!p) return;
   placeTile(p.q, p.r, p);
+}
+
+/* A special tile calls its animal to it the moment it is laid, with no layout
+ * to satisfy. This is a gift on top of the turn: it does not spend the one
+ * animal move. If the animal is already out on the land it simply comes here
+ * instead, which scores nothing but can save it a long walk. */
+function summonOnSpecial(animal, q, r) {
+  const token = myToken(animal);
+  const k = key(q, r);
+  if (state.tokenAt.has(k)) return;
+  if (token.at) {
+    state.tokenAt.delete(key(token.at.q, token.at.r));
+    showHint(ANIMALS[animal].name + ' comes to the ' + specialNameFor(animal), 2600);
+  } else {
+    const pts = ANIMALS[animal].place.points;
+    score(state.current, pts);
+    flashScore('+' + pts, q, r);
+    showHint(ANIMALS[animal].name + ' takes the ' + specialNameFor(animal) + '  +' + pts, 2800);
+  }
+  token.at = { q, r };
+  token.movedAt = performance.now();
+  state.tokenAt.set(k, token);
+}
+
+function specialNameFor(animal) {
+  const sp = SPECIALS.find((s) => s.animal === animal);
+  return sp ? sp.name.toLowerCase() : 'place';
 }
 
 function rotateTile(dir) {
@@ -858,6 +905,21 @@ function sidePath(c, size, sides) {
   c.closePath();
 }
 
+// A special tile carries its animal as a watermark and a warm rim.
+function drawSpecialMark(c, tile, cx, cy, size, alpha) {
+  if (!tile.special) return;
+  c.save();
+  if (alpha != null) c.globalAlpha = alpha;
+  drawGlyph(c, tile.special, cx, cy, size * 1.05, 'rgba(255,236,190,0.34)');
+  c.globalAlpha = (alpha == null ? 1 : alpha) * 0.9;
+  traceHex(c, cx, cy, size * 0.9);
+  c.lineWidth = Math.max(1.5, size * 0.06);
+  c.strokeStyle = 'rgba(255,214,130,0.85)';
+  c.stroke();
+  c.restore();
+  c.globalAlpha = 1;
+}
+
 /* Draw a whole tile: its terrain, the sides the second terrain owns, and the
  * seam between them, all turned to the tile's rotation. */
 function drawTileArt(c, tile, cx, cy, size, alpha) {
@@ -906,6 +968,7 @@ function drawBoard(now) {
     ctx.shadowBlur = size * 0.18;
     ctx.shadowOffsetY = size * 0.06;
     drawTileArt(ctx, tile, s.x, s.y, size * grow);
+    drawSpecialMark(ctx, tile, s.x, s.y, size * grow);
     ctx.restore();
 
     // Mixed tiles carry a pip per terrain, so the rule stays readable even
@@ -1012,7 +1075,7 @@ function drawTray() {
 
 function drawDeck(now) {
   const d = deckAnchor();
-  const remaining = state.deck.length + (state.held ? 1 : 0);
+  const remaining = tilesLeft();
   const stack = Math.min(4, Math.max(0, Math.ceil(remaining / 8)));
 
   // Shadow footprint.
@@ -1037,7 +1100,7 @@ function drawDeck(now) {
   ctx.font = '700 13px "Avenir Next", "Segoe UI", system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(String(state.deck.length), d.x, d.y - stack * 3);
+  ctx.fillText(String(tilesLeft()), d.x, d.y - stack * 3);
   ctx.restore();
   void now;
 }
@@ -1085,6 +1148,7 @@ function drawHeld(now) {
     const p = hexToPixel(q, r, HEX_SIZE);
     const s = worldToScreen(p.x, p.y);
     drawTileArt(ctx, held, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
+    drawSpecialMark(ctx, held, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
   }
 
   ctx.save();
@@ -1092,6 +1156,7 @@ function drawHeld(now) {
   ctx.shadowBlur = held.dragging ? 26 : 14;
   ctx.shadowOffsetY = held.dragging ? 12 : 5;
   drawTileArt(ctx, held, held.x, held.y + bob, size);
+  drawSpecialMark(ctx, held, held.x, held.y + bob, size);
   ctx.restore();
   if (held.types.length > 1) drawTypePips(held.types, held.x, held.y + bob, size);
 
@@ -1128,15 +1193,57 @@ function handLayout() {
   const railY = H - safeBottom() - 8 - ch;
   const rowH = 74;
   const rowY = railY - 6 - rowH;
+  // The tiles drawn from the bag get their own shelf above the hand.
+  const choiceH = state.choices.length ? 80 : 0;
+  const choiceY = rowY - 8 - choiceH;
+  const aboveHand = choiceH ? choiceY : rowY;
   const detailH = 92;
-  const detailY = rowY - 8 - detailH;
+  const detailY = aboveHand - 8 - detailH;
   return {
-    n, gap, cw, ch, railY, rowY, rowH, detailY, detailH,
+    n, gap, cw, ch, railY, rowY, rowH, detailY, detailH, choiceY, choiceH,
     startX: (W - (cw * n + gap * (n - 1))) / 2,
     btnW: Math.min(150, W * 0.42),
     btnH: 32,
-    top: (state.sel ? detailY : rowY) - 12,
+    top: (state.sel ? detailY : aboveHand) - 12,
   };
+}
+
+const CHOICE_SIZE = 32;
+
+// Where each drawn tile sits on the shelf.
+function choicePos(i, lay) {
+  const step = CHOICE_SIZE * 2 + 14;
+  const total = step * state.choices.length - 14;
+  return {
+    x: (W - total) / 2 + step * i + CHOICE_SIZE,
+    y: lay.choiceY + lay.choiceH / 2 - 4,
+  };
+}
+
+function drawChoices(now, lay) {
+  if (!state.choices.length) return;
+  ctx.textAlign = 'center';
+  ctx.font = font('700 9.5px');
+  ctx.fillStyle = 'rgba(147,166,181,0.95)';
+  ctx.fillText('PICK ONE FROM THE BAG', W / 2, lay.choiceY + 12);
+
+  state.choices.forEach((card, i) => {
+    const p = choicePos(i, lay);
+    const lift = Math.sin(now / 620 + i * 1.3) * 1.6;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 4;
+    drawTileArt(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
+    drawSpecialMark(ctx, card, p.x, p.y + lift, CHOICE_SIZE);
+    ctx.restore();
+    if (card.special) {
+      ctx.font = font('800 8px');
+      ctx.fillStyle = 'rgba(255,214,130,0.95)';
+      ctx.fillText(card.specialName.toUpperCase(), p.x, p.y + lift + CHOICE_SIZE * SQRT3 / 2 + 11);
+    }
+    pushHit('choice', p.x - CHOICE_SIZE, p.y - CHOICE_SIZE, CHOICE_SIZE * 2, CHOICE_SIZE * 2, i);
+  });
 }
 
 function roundRect(x, y, w, h, r) {
@@ -1349,7 +1456,15 @@ function drawTurnRow(now, lay) {
 
   // Deck and the tile drawn for this turn, on the left.
   drawDeck(now);
-  if (!state.turn.tileLaid && !state.pending) {
+  if (state.choices.length) {
+    const h = heldHome();
+    traceHex(ctx, h.x, h.y, HAND_TILE * 0.86);
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(147,166,181,0.45)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (!state.turn.tileLaid && !state.pending) {
     drawHeld(now);
     pushHit('tile', 4, lay.rowY, heldHome().x + HAND_TILE + 8, lay.rowH);
   } else if (state.pending) {
@@ -1382,9 +1497,10 @@ function drawTurnRow(now, lay) {
     ctx.textAlign = 'left';
     ctx.font = font('600 11.5px');
     ctx.fillStyle = 'rgba(147,166,181,0.92)';
-    const msg = state.pending ? 'Confirm your tile'
-      : (!state.turn.tileLaid ? 'Play the tile'
-        : (state.turn.animalMoved ? 'Turn done' : 'Animal optional'));
+    const msg = state.choices.length ? 'Pick a tile'
+      : (state.pending ? 'Confirm your tile'
+        : (!state.turn.tileLaid ? 'Play the tile'
+          : (state.turn.animalMoved ? 'Turn done' : 'Animal optional')));
     wrapText(msg, textX, cy - 3, textW, 13);
   }
 
@@ -1411,6 +1527,7 @@ function drawHand(now) {
   pushHit('tray', 0, lay.top, W, H - lay.top);
 
   if (state.sel) drawCardDetail(now, state.sel.animal, lay);
+  drawChoices(now, lay);
   drawTurnRow(now, lay);
 
   const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
@@ -1535,6 +1652,7 @@ function drawPendingTile(now) {
   ctx.shadowBlur = size * 0.35;
   ctx.shadowOffsetY = size * 0.1;
   drawTileArt(ctx, p, s.x, s.y, size, 0.92);
+  drawSpecialMark(ctx, p, s.x, s.y, size, 0.92);
   ctx.restore();
   if (p.types.length > 1) drawTypePips(p.types, s.x, s.y, size);
 
@@ -1659,6 +1777,7 @@ canvas.addEventListener('pointerdown', (e) => {
     press.hit = hit;
     if (hit.id === 'card') beginCardPress(hit.data, e);
     else if (hit.id === 'tile') beginTilePress(e);
+    else if (hit.id === 'choice') beginChoicePress(hit.data, e);
     else if (hit.id === 'pendingtile') beginPendingDrag(e);
     return;
   }
@@ -1677,6 +1796,20 @@ canvas.addEventListener('pointerdown', (e) => {
 
   panning = { id: e.pointerId, x: e.clientX, y: e.clientY };
 });
+
+// Taking a tile from the shelf keeps it and drops the rest back in the bag.
+function beginChoicePress(index, e) {
+  const held = chooseTile(index);
+  if (!held) return;
+  held.dragging = true;
+  held.pointerId = e.pointerId;
+  held.grabDX = 0;
+  held.grabDY = 0;
+  held.x = e.clientX;
+  held.y = e.clientY;
+  updateHover();
+  hideHint();
+}
 
 function beginTilePress(e) {
   const held = state.held;
@@ -1926,9 +2059,13 @@ const hudEl = document.getElementById('hud');
 const hintEl = document.getElementById('hint');
 let hintTimer = null;
 
+function positionHint() {
+  hintEl.style.bottom = (H - trayTop() + 12) + 'px';
+}
+
 function showHint(text, ms = 2200) {
   hintEl.textContent = text;
-  hintEl.style.bottom = (H - trayTop() + 12) + 'px';
+  positionHint();
   hintEl.classList.remove('hidden');
   clearTimeout(hintTimer);
   hintTimer = setTimeout(() => hintEl.classList.add('hidden'), ms);
@@ -1939,8 +2076,13 @@ function hideHint() {
   hintEl.classList.add('hidden');
 }
 
+function tilesLeft() {
+  return state.deck.length + state.choices.length +
+    (state.held ? 1 : 0) + (state.pending ? 1 : 0);
+}
+
 function syncHud() {
-  document.getElementById('deckCount').textContent = String(state.deck.length);
+  document.getElementById('deckCount').textContent = String(tilesLeft());
   const color = PLAYER_COLORS[state.current % PLAYER_COLORS.length];
   const chip = document.getElementById('turnChip');
   chip.style.background = color;
@@ -1997,38 +2139,45 @@ function buildLegend(el, counts) {
   }
 }
 
-// The title screen shows what a two terrain tile looks like and what it means.
-function buildMixedRow() {
-  const el = document.getElementById('mixedRow');
+// The title screen shows the four special tiles and what each one brings.
+function buildSpecialRow() {
+  const el = document.getElementById('specialRow');
   if (!el) return;
   el.innerHTML = '';
-  for (const mix of [['water', 'rock'], ['rock', 'grass'], ['grass', 'dirt']]) {
+  for (const sp of SPECIALS) {
     const item = document.createElement('div');
     item.className = 'legend-item';
     const cv = document.createElement('canvas');
     cv.width = 104;
     cv.height = 90;
     const c = cv.getContext('2d');
-    drawTileArt(c, { types: mix, variant: 0, rot: 4, sides: 2 },
-      cv.width / 2, cv.height / 2, cv.width * 0.46);
-    // The same pips the board draws.
-    const pr = 6.5, gap = pr * 2.4, py = 17;
-    c.beginPath();
-    const w = gap + pr * 2;
-    c.roundRect(cv.width / 2 - w / 2 - pr * 0.5, py - pr * 1.35, w + pr, pr * 2.7, pr * 1.35);
-    c.fillStyle = 'rgba(8,14,20,0.55)';
-    c.fill();
-    mix.forEach((type, i) => {
-      c.beginPath();
-      c.arc(cv.width / 2 + (i - 0.5) * gap, py, pr, 0, Math.PI * 2);
-      c.fillStyle = TYPES[type].light;
-      c.fill();
-    });
+    const tile = { types: [sp.type], variant: 0, rot: 0, sides: 0, special: sp.animal };
+    drawTileArt(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
+    drawSpecialMark(c, tile, cv.width / 2, cv.height / 2, cv.width * 0.46);
     item.appendChild(cv);
     const label = document.createElement('span');
-    label.textContent = TYPES[mix[0]].name + ' + ' + TYPES[mix[1]].name;
+    label.textContent = sp.name;
     item.appendChild(label);
+    const b = document.createElement('b');
+    b.textContent = ANIMALS[sp.animal].name;
+    item.appendChild(b);
     el.appendChild(item);
+  }
+}
+
+function buildDrawPicker() {
+  const wrap = document.getElementById('drawPicker');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  for (const n of DRAW_CHOICES) {
+    const b = document.createElement('button');
+    b.className = 'pcount' + (n === state.drawCount ? ' active' : '');
+    b.textContent = String(n);
+    b.addEventListener('click', () => {
+      state.drawCount = n;
+      [...wrap.children].forEach((c) => c.classList.toggle('active', c === b));
+    });
+    wrap.appendChild(b);
   }
 }
 
@@ -2125,7 +2274,8 @@ if (cardProblems.length) {
 
 buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
-buildMixedRow();
+buildSpecialRow();
+buildDrawPicker();
 buildAnimalRow();
 
 for (const id of ['hudVersion', 'titleVersion', 'overVersion']) {
@@ -2146,6 +2296,7 @@ window.__debug = {
   placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
   recomputeValid, spendAnimalMove, cancelPending, confirmPending, setPending,
+  chooseTile, summonOnSpecial, SPECIALS,
   doPlaceToken, doMoveToken, doReturnToken, matchPattern, cellSatisfied,
 };
 
