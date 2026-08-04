@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.5.0 — named animals instead of tiers
+
+- Frogs now go out onto water with dirt alongside; fish onto two connected
+  water tiles.
+- Cards that call for another animal now name a **specific** one rather than
+  any animal of a tier, chosen to read true: spiders web where a worm has
+  worked the soil, loons dive for fish, bears fish the shallows, deer drink
+  where the water is quiet enough for a loon, frogs eat spiders, a diving loon
+  sends a fish for deep water, and a bear on the shore drives a loon off its
+  nest.
+- Every tier now has at least one animal that comes home on **land alone** —
+  worm, spider, deer and bear — so no tier can be stranded waiting on a
+  predator nobody has out.
+- `validateCards()` runs on load and enforces the shape of the game: lower tier
+  to go out, higher to come home, a land-alone return per tier, land under
+  every anchor, home worth more than out, and full reachability so two animals
+  can never end up each waiting on the other.
+- Card diagrams draw the named animal, tinted by the tier it belongs to.
+
 ## v0.4.0 — either order, and the cards always in view
 
 - A turn is still one required tile and one optional animal move, but they can

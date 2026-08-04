@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -1058,8 +1058,9 @@ function drawPatternDiagram(cx, cy, cells, s, color, animal) {
       ctx.lineWidth = 1.6;
       ctx.stroke();
     } else {
-      // Any animal of a tier: a paw in that tier's colour.
-      const tint = req.tier ? TIERS[req.tier].color : '#c9d9e6';
+      // An animal requirement, tinted by the tier it belongs to.
+      const tint = req.token ? TIERS[ANIMALS[req.token].tier].color
+        : (req.tier ? TIERS[req.tier].color : '#c9d9e6');
       ctx.fillStyle = '#1d2833';
       ctx.fill();
       ctx.setLineDash([2.5, 2.5]);
@@ -1743,6 +1744,12 @@ function beginGame() {
  * ------------------------------------------------------------------ */
 
 buildSprites();
+
+const cardProblems = validateCards();
+if (cardProblems.length) {
+  console.warn('Card rules violated:\n  ' + cardProblems.join('\n  '));
+}
+
 buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
 buildAnimalRow();

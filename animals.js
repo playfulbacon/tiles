@@ -7,29 +7,40 @@ const TAU = Math.PI * 2;
  * Pattern shape
  *
  * A pattern is a list of cells [dq, dr, requirement] where [0, 0] is the
- * hex the token stands on. A requirement is either { tile: 'water' } or
- * { tier: 'mid' }; a tier requirement is met by any animal of that tier
- * belonging to any player, so everyone's pieces prop each other up.
+ * hex the token stands on. A requirement is one of:
+ *
+ *   { tile: 'water' }   that tile type
+ *   { token: 'fish' }   that animal, belonging to any player
+ *   { tier: 'mid' }     any animal of that tier, belonging to any player
+ *
+ * Animal requirements are met by anyone's piece, so the table props each
+ * other up rather than each player building alone.
  *
  * Patterns match under all six rotations and their mirrors, so a card never
  * cares which way round the land happens to lie.
  * ------------------------------------------------------------------ */
 
 const t = (type) => ({ tile: type });
-const beside = (tier) => ({ tier });
+const near = (animal) => ({ token: animal });      // one named animal
+const nearTier = (tier) => ({ tier });             // any animal of a tier
 
 /* ------------------------------------------------------------------ *
  * The ladder
  *
- * Animals belong to an early, mid or late tier. To go out onto the land an
- * animal needs one of the tier below standing alongside; to come home it
- * needs one of the tier above. Both ends cap: early animals go out on land
- * alone, late animals come home on land alone.
+ * Animals belong to an early, mid or late tier, and points climb with the
+ * tier. Cards that call for another animal name a specific one, chosen so
+ * the pairing reads true: loons dive for fish, bears fish the shallows,
+ * frogs eat spiders, a bear on the shore drives a loon off its nest.
  *
- * So the board fills from the bottom up - only early animals can go out at
- * first - and then unwinds from the bottom up too, the small animals
- * retreating as the big ones arrive. Points climb with the tier, so the
- * turns late in a game are worth several early ones.
+ * Two rules hold the escalation together, and validateCards() below checks
+ * them on every load:
+ *
+ *   - going out may only ask for an animal of a LOWER tier
+ *   - coming home may only ask for an animal of a HIGHER tier
+ *
+ * Anything else is land alone. Every tier has at least one animal that comes
+ * home on land alone, so no tier can ever be stranded waiting on a predator
+ * that is not on the board.
  * ------------------------------------------------------------------ */
 
 const TIERS = {
@@ -51,38 +62,38 @@ const ANIMALS = {
     },
     ret: {
       points: 4,
-      hint: 'Dirt beside grass, a mid animal alongside',
-      cells: [[0, 0, t('dirt')], [1, 0, t('grass')], [1, -1, beside('mid')]],
+      hint: 'Dirt at the meadow edge, more dirt opposite',
+      cells: [[0, 0, t('dirt')], [1, 0, t('grass')], [-1, 0, t('dirt')]],
     },
   },
   frog: {
     name: 'Frog',
     tier: 'early',
-    blurb: 'Hops the shallows.',
+    blurb: 'Hunts the muddy shallows.',
+    place: {
+      points: 2,
+      hint: 'Water with dirt alongside',
+      cells: [[0, 0, t('water')], [1, 0, t('dirt')]],
+    },
+    ret: {
+      points: 5,
+      hint: 'Grass by the water, beside a spider it can eat',
+      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, near('spider')]],
+    },
+  },
+  fish: {
+    name: 'Fish',
+    tier: 'early',
+    blurb: 'Runs the channels.',
     place: {
       points: 2,
       hint: 'Two connected water tiles',
       cells: [[0, 0, t('water')], [1, 0, t('water')]],
     },
     ret: {
-      points: 4,
-      hint: 'A rock by the water, a mid animal alongside',
-      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, beside('mid')]],
-    },
-  },
-  fish: {
-    name: 'Fish',
-    tier: 'early',
-    blurb: 'Runs the deep channels.',
-    place: {
-      points: 3,
-      hint: 'Three water tiles in a row',
-      cells: [[0, 0, t('water')], [1, 0, t('water')], [-1, 0, t('water')]],
-    },
-    ret: {
       points: 5,
-      hint: 'Water against the bank, a mid animal alongside',
-      cells: [[0, 0, t('water')], [1, 0, t('dirt')], [1, -1, beside('mid')]],
+      hint: 'Open water, fleeing a diving loon',
+      cells: [[0, 0, t('water')], [1, 0, t('water')], [1, -1, near('loon')]],
     },
   },
   spider: {
@@ -91,13 +102,13 @@ const ANIMALS = {
     blurb: 'Strings a web between stones.',
     place: {
       points: 4,
-      hint: 'Grass beside rock, an early animal alongside',
-      cells: [[0, 0, t('grass')], [1, 0, t('rock')], [1, -1, beside('early')]],
+      hint: 'Grass beside rock, where a worm has worked the soil',
+      cells: [[0, 0, t('grass')], [1, 0, t('rock')], [1, -1, near('worm')]],
     },
     ret: {
-      points: 6,
-      hint: 'Rock beside grass, a late animal alongside',
-      cells: [[0, 0, t('rock')], [1, 0, t('grass')], [1, -1, beside('late')]],
+      points: 5,
+      hint: 'Folds into the stones at the meadow edge',
+      cells: [[0, 0, t('rock')], [1, 0, t('rock')], [1, -1, t('grass')]],
     },
   },
   loon: {
@@ -106,23 +117,23 @@ const ANIMALS = {
     blurb: 'Dives the open water.',
     place: {
       points: 5,
-      hint: 'Open water, an early animal alongside',
-      cells: [[0, 0, t('water')], [1, 0, t('water')], [1, -1, beside('early')]],
+      hint: 'Open water with a fish to dive for',
+      cells: [[0, 0, t('water')], [1, 0, t('water')], [1, -1, near('fish')]],
     },
     ret: {
       points: 7,
-      hint: 'Grass by the water, a late animal alongside',
-      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, beside('late')]],
+      hint: 'Leaves the nest when a bear comes to the shore',
+      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, near('bear')]],
     },
   },
   deer: {
     name: 'Deer',
     tier: 'late',
-    blurb: 'Grazes the wide meadow.',
+    blurb: 'Drinks at quiet water.',
     place: {
       points: 6,
-      hint: 'Grass by the water, a mid animal alongside',
-      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, beside('mid')]],
+      hint: 'Grass by the water, quiet enough for a loon',
+      cells: [[0, 0, t('grass')], [1, 0, t('water')], [1, -1, near('loon')]],
     },
     ret: {
       points: 8,
@@ -136,8 +147,8 @@ const ANIMALS = {
     blurb: 'Fishes the rocky bank.',
     place: {
       points: 7,
-      hint: 'Rock by the water, a mid animal alongside',
-      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, beside('mid')]],
+      hint: 'Rock by the water, with a fish running it',
+      cells: [[0, 0, t('rock')], [1, 0, t('water')], [1, -1, near('fish')]],
     },
     ret: {
       points: 9,
@@ -151,6 +162,112 @@ const ANIMALS = {
 const ANIMAL_ORDER = ['worm', 'frog', 'fish', 'spider', 'loon', 'deer', 'bear'];
 const TIER_OF = (animal) => ANIMALS[animal].tier;
 const animalsInTier = (tier) => ANIMAL_ORDER.filter((a) => ANIMALS[a].tier === tier);
+
+/* ------------------------------------------------------------------ *
+ * Card rules
+ *
+ * These hold the escalation together whatever the individual cards say, so
+ * that retuning a card cannot quietly break the shape of the game. Run on
+ * load; problems are reported to the console rather than thrown, so a bad
+ * card never costs anyone a game in progress.
+ * ------------------------------------------------------------------ */
+
+function animalRequirements(pattern) {
+  const out = [];
+  for (const [, , req] of pattern.cells) {
+    if (req.token) out.push({ kind: 'animal', animal: req.token, rank: TIERS[ANIMALS[req.token].tier].rank });
+    else if (req.tier) out.push({ kind: 'tier', tier: req.tier, rank: TIERS[req.tier].rank });
+  }
+  return out;
+}
+
+function validateCards() {
+  const problems = [];
+  const homeOnLandAlone = {};
+
+  for (const name of ANIMAL_ORDER) {
+    const a = ANIMALS[name];
+    if (!a) { problems.push(name + ' is in the rail order but has no card'); continue; }
+    const rank = TIERS[a.tier].rank;
+
+    // Going out may only lean on something already established below you.
+    for (const req of animalRequirements(a.place)) {
+      if (req.rank >= rank) {
+        problems.push(`${name} (${a.tier}) goes out on ${req.animal || 'any ' + req.tier}, which is not a lower tier`);
+      }
+    }
+    // Coming home may only be triggered by something above you.
+    for (const req of animalRequirements(a.ret)) {
+      if (req.rank <= rank) {
+        problems.push(`${name} (${a.tier}) comes home on ${req.animal || 'any ' + req.tier}, which is not a higher tier`);
+      }
+    }
+    // A card that names an animal must name one that exists.
+    for (const p of [a.place, a.ret]) {
+      for (const [, , req] of p.cells) {
+        if (req.token && !ANIMALS[req.token]) problems.push(`${name} asks for unknown animal ${req.token}`);
+        if (req.tier && !TIERS[req.tier]) problems.push(`${name} asks for unknown tier ${req.tier}`);
+        if (req.tile && !['water', 'rock', 'grass', 'dirt', 'any'].includes(req.tile)) {
+          problems.push(`${name} asks for unknown tile ${req.tile}`);
+        }
+      }
+    }
+    // The anchor is the hex the animal stands on, so it must be land.
+    for (const [p, label] of [[a.place, 'going out'], [a.ret, 'coming home']]) {
+      const anchor = p.cells.find(([dq, dr]) => dq === 0 && dr === 0);
+      if (!anchor) problems.push(`${name} ${label} has no anchor cell`);
+      else if (!anchor[2].tile) problems.push(`${name} ${label} stands on something that is not a tile`);
+    }
+    if (a.ret.points <= a.place.points) problems.push(`${name} should score more coming home than going out`);
+
+    if (!animalRequirements(a.ret).length) homeOnLandAlone[a.tier] = true;
+  }
+
+  // Every tier needs a way home that does not depend on another animal,
+  // otherwise a tier can be stranded waiting for a predator nobody has out.
+  for (const tier of TIER_ORDER) {
+    if (!animalsInTier(tier).length) continue;
+    if (!homeOnLandAlone[tier]) {
+      problems.push(`no ${tier} animal can come home on land alone`);
+    }
+  }
+
+  // Reachability. Cards lean on other cards, so a careless edit can build a
+  // knot nobody can untie - two animals each waiting on the other to go out
+  // first. Grow the set of animals that can ever reach the board, then check
+  // every card can both get out and get home from it.
+  const canGoOut = new Set();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const name of ANIMAL_ORDER) {
+      if (canGoOut.has(name)) continue;
+      if (requirementsMet(ANIMALS[name].place, canGoOut)) { canGoOut.add(name); grew = true; }
+    }
+  }
+  for (const name of ANIMAL_ORDER) {
+    if (!canGoOut.has(name)) {
+      problems.push(`${name} can never go out: its layout waits on an animal that can never get out either`);
+    } else if (!requirementsMet(ANIMALS[name].ret, canGoOut)) {
+      problems.push(`${name} can never come home: its layout waits on an animal that can never get out`);
+    }
+  }
+  return problems;
+}
+
+// Can this pattern's animal requirements be met, given a set of animals that
+// are able to reach the board? Tile requirements are down to the luck of the
+// deck, so they are not considered here.
+function requirementsMet(pattern, available) {
+  for (const req of animalRequirements(pattern)) {
+    if (req.kind === 'animal') {
+      if (!available.has(req.animal)) return false;
+    } else if (!animalsInTier(req.tier).some((a) => available.has(a))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /* ------------------------------------------------------------------ *
  * Orientations

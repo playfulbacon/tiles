@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.4.0**
+**Current version: v0.5.0**
 
 ## How to play
 
@@ -51,25 +51,23 @@ two-finger pinch.
 
 ## The ladder
 
-Animals belong to an **early**, **mid** or **late** tier. To go out onto the
-land an animal needs one of the tier **below** standing alongside it; to come
-home it needs one of the tier **above**. Both ends cap:
+Animals belong to an **early**, **mid** or **late** tier, and points climb with
+the tier. Cards that call for another animal name a **specific** one, chosen so
+the pairing reads true — a loon needs a fish to dive for, a bear a fish to
+catch, and a loon leaves the nest when a bear reaches the shore.
 
-| Tier  | Animals             | To go out          | To come home      |
-| ----- | ------------------- | ------------------ | ----------------- |
-| Early | worm, frog, fish    | land alone *(cap)* | a **mid** animal  |
-| Mid   | spider, loon        | an **early** animal | a **late** animal |
-| Late  | deer, bear          | a **mid** animal   | land alone *(cap)* |
+Two rules hold the escalation together:
 
-So a game fills from the bottom up — at the start only early animals can go out
-at all — and then unwinds from the bottom up too, the small animals retreating
-as the big ones arrive. Points climb with every rung, so the late turns of a
-game are worth several early ones.
+- **Going out** may only ask for an animal of a **lower** tier.
+- **Coming home** may only ask for an animal of a **higher** tier.
 
-A tier requirement is met by **any** animal of that tier belonging to **any**
-player, so everyone's pieces prop each other up. Because both ends cap, the
-game can never lock: with every token home, early animals can always go out; with
-every token out, late animals can always come home.
+Anything else is land alone. Early animals therefore always go out on land
+alone, which is what lets a game start, and **every tier has at least one animal
+that comes home on land alone** — worm, spider, deer and bear — so no tier can
+be stranded waiting for a predator nobody has on the board.
+
+An animal requirement is met by that animal belonging to **any** player, so the
+table props each other up rather than each player building alone.
 
 ## The animal cards
 
@@ -77,15 +75,20 @@ The marked hex is where the animal itself stands. **Layouts match in any
 rotation or mirror image**, so you only need the shape, never a particular
 compass direction.
 
-| Animal | Tier  | Go out                                        | Come home                                     |
-| ------ | ----- | --------------------------------------------- | --------------------------------------------- |
-| Worm   | Early | On dirt, touching dirt (+2)                   | Dirt beside grass, a mid animal alongside (+4) |
-| Frog   | Early | On water, touching water (+2)                 | A rock by the water, a mid animal alongside (+4) |
-| Fish   | Early | Middle of three water in a row (+3)           | Water against the bank, a mid animal alongside (+5) |
-| Spider | Mid   | Grass beside rock, an early animal alongside (+4) | Rock beside grass, a late animal alongside (+6) |
-| Loon   | Mid   | Open water, an early animal alongside (+5)    | Grass by the water, a late animal alongside (+7) |
-| Deer   | Late  | Grass by the water, a mid animal alongside (+6) | Three grass tiles in a row (+8)             |
-| Bear   | Late  | Rock by the water, a mid animal alongside (+7) | Three rock tiles in a row (+9)               |
+| Animal | Tier  | Go out                                        | Come home                                      |
+| ------ | ----- | --------------------------------------------- | ---------------------------------------------- |
+| Worm   | Early | On dirt, touching dirt (+2)                   | Dirt at the meadow edge, dirt opposite (+4)    |
+| Frog   | Early | Water with dirt alongside (+2)                | Grass by the water, beside a **spider** (+5)   |
+| Fish   | Early | Two connected water tiles (+2)                | Open water, fleeing a diving **loon** (+5)     |
+| Spider | Mid   | Grass beside rock, where a **worm** works the soil (+4) | Folds into the stones at the meadow edge (+5) |
+| Loon   | Mid   | Open water with a **fish** to dive for (+5)   | Leaves the nest when a **bear** reaches the shore (+7) |
+| Deer   | Late  | Grass by water, quiet enough for a **loon** (+6) | Three grass tiles in a row (+8)             |
+| Bear   | Late  | Rock by water, with a **fish** running it (+7) | Three rock tiles in a row (+9)                |
+
+Why those pairings: spiders web where the soil is alive with small things,
+loons and bears both hunt fish, frogs eat spiders, a diving loon sends a fish
+for deep water, a bear on the shore drives a loon off its nest, and deer come
+down to drink where the water is quiet enough for a loon to ride it.
 
 Sending an animal out and calling it home both score, so a card can be cycled
 again and again — and cycling beats hoarding, since an animal left on the board
@@ -93,6 +96,29 @@ is a card you cannot score with.
 
 Animals may share the land freely but never a single hex, and only one animal
 moves per turn.
+
+## Changing the cards
+
+Cards live at the top of `animals.js`. A pattern is a list of cells
+`[dq, dr, requirement]` where `[0, 0]` is the hex the animal stands on, and a
+requirement is one of:
+
+```js
+t('water')        // that tile type
+near('fish')      // that animal, belonging to any player
+nearTier('mid')   // any animal of that tier, belonging to any player
+```
+
+`validateCards()` runs on every load and reports to the console rather than
+throwing, so a bad card can never spoil a game in progress. It checks that:
+
+- going out only asks for a lower tier, coming home only a higher one;
+- every tier has at least one animal that comes home on land alone;
+- the hex an animal stands on is land, and named animals and tiles exist;
+- coming home always scores more than going out;
+- **every card can be reached** — it grows the set of animals that can ever
+  get onto the board and confirms each card can both go out and come home from
+  it, so a knot where two animals each wait on the other is caught immediately.
 
 ## Tile types
 
