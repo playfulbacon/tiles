@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.6.0**
+**Current version: v0.7.0**
 
 ## How to play
 
@@ -23,6 +23,20 @@ onto the board.
   outlined while you drag.
 - Release somewhere invalid and the tile returns to your hand — you never lose
   your turn to a misdrop.
+
+A dropped tile **waits for confirmation** rather than committing, so you can get
+its facing right first. Four buttons appear beside it:
+
+| | |
+| --- | --- |
+| ↺ ↻ | turn the tile one side each way |
+| Back | return it to your hand, still turned as you left it |
+| Confirm | lay it for good |
+
+You can also pick the waiting tile straight back up and drag it somewhere else.
+While dragging, **tap with a second finger to turn the tile** — on a computer,
+press the **right mouse button**. Until you confirm, the tile is not part of the
+land and counts for nobody's layout.
 
 ### Move one animal (optional)
 
@@ -142,17 +156,23 @@ water in one animal's layout and the dirt in another's. They are the flexible
 ground everyone wants, and worth thinking about before you hand one to the
 board.
 
-Because a tile's terrains are unordered, **where the second terrain sits on the
-hex is purely cosmetic** — the seam wanders differently on every tile and never
-changes what the tile does. Mixed tiles carry a dot per terrain along their top
-edge, so the rule stays readable when the board is zoomed out or a terrain is
-only a sliver.
+On a mixed tile the two terrains divide along the **six sides of the hex**: the
+boundary runs from the centre out to a corner, so every side belongs wholly to
+one terrain or the other, and the second terrain owns two or three of them.
+Turning a tile changes which way those sides face.
+
+Because *any* terrain on a tile counts, **turning a tile never changes what it
+counts as** — it is a matter of how the landscape reads, not of what the tile
+does. That keeps the rule to one sentence and leaves you free to line a shore
+up with the shore next to it.
+
+Mixed tiles carry a dot per terrain along their top edge, so the rule stays
+readable when the board is zoomed out or a terrain faces away from you.
 
 The deck holds 60 tiles: 12 each of the four plain terrains, plus 2 of each of
-the six pairs. That leaves the supply even — 18 tiles carry each terrain.
-
-The deck holds 15 of each type, 60 tiles in total, shuffled every game. Each
-type has three visual variants so a large map does not look repetitive.
+the six pairs. That leaves the supply even — 18 tiles carry each terrain. Every
+tile is drawn at a random facing, and each terrain has three visual variants so
+a large map does not look repetitive.
 
 ## Running it
 

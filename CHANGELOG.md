@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.7.0 — sides, and turning a tile
+
+- On a mixed tile the two terrains now divide along the **six sides of the
+  hex**. The boundary runs from the centre out to a corner, so every side
+  belongs wholly to one terrain or the other and the second terrain owns two or
+  three of them.
+- Tiles have a facing, and are drawn at a random one.
+- A dropped tile now **waits for confirmation** instead of committing. Buttons
+  appear beside it: turn one side each way, Back to return it to your hand still
+  turned as you left it, or Confirm to lay it. You can also pick the waiting
+  tile back up and drag it elsewhere. Until confirmed it is not part of the land
+  and counts for nobody's layout.
+- While dragging, a second finger turns the tile; on a computer the right mouse
+  button does. Right click had to be wired to mousedown, because a browser only
+  raises pointerdown for the first button pressed, so a right click during a
+  left button drag never arrives as one.
+- Turning a tile never changes what it counts as — any terrain on it still
+  counts — so orientation is about how the landscape reads, not about the rules.
+- Tile art is now composited from one sprite per terrain rather than one per
+  combination, which is what makes free rotation cheap.
+
 ## v0.6.0 — tiles with two terrains
 
 - Some tiles now carry two terrains: rocky shore, reeds, muddy bank, outcrop,

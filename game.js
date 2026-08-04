@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -55,10 +55,10 @@ const MIXES = [
 
 const COPIES_PER_TYPE = 12;   // 48 single terrain tiles
 const COPIES_PER_MIX = 2;     // 12 mixed tiles, 60 in all
+const SIDE_SPLITS = [2, 3];   // how many of the six sides the second terrain owns
 const VARIANTS = 3;
 
 const comboKey = (types) => types.join('+');
-const ALL_COMBOS = TYPE_KEYS.map((t) => [t]).concat(MIXES);
 
 // "Water" or "Water & rock", for hints and labels.
 function terrainName(types) {
@@ -156,10 +156,9 @@ const SPRITE_R = 128;
 const sprites = {};
 
 function buildSprites() {
-  for (const combo of ALL_COMBOS) {
-    const k = comboKey(combo);
-    sprites[k] = [];
-    for (let v = 0; v < VARIANTS; v++) sprites[k].push(makeSprite(combo, v));
+  for (const type of TYPE_KEYS) {
+    sprites[type] = [];
+    for (let v = 0; v < VARIANTS; v++) sprites[type].push(makeSprite([type], v));
   }
 }
 
@@ -175,29 +174,6 @@ function paintTerrain(c, type, cx, cy, R, w, h, rand) {
   else if (type === 'rock') paintRock(c, cx, cy, R, t, rand);
   else if (type === 'grass') paintGrass(c, cx, cy, R, t, rand);
   else paintDirt(c, cx, cy, R, t, rand);
-}
-
-/* The region the second terrain occupies: everything past a wandering line
- * across the hex. Position and angle are cosmetic, so they vary by variant. */
-function lobePath(c, cx, cy, R, rand) {
-  const angle = rand() * Math.PI * 2;
-  const dist = R * (-0.1 + rand() * 0.3);
-  const nx = Math.cos(angle), ny = Math.sin(angle);
-  const px = -ny, py = nx;
-  const L = R * 2.6;
-  const wobble = R * (0.06 + rand() * 0.07);
-  const phase = rand() * 6;
-  c.beginPath();
-  for (let i = 0; i <= 26; i++) {
-    const u = -L / 2 + (i / 26) * L;
-    const d = dist + Math.sin(u / (R * 0.34) + phase) * wobble;
-    const x = cx + nx * d + px * u;
-    const y = cy + ny * d + py * u;
-    if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
-  }
-  c.lineTo(cx + nx * R * 3 + px * L / 2, cy + ny * R * 3 + py * L / 2);
-  c.lineTo(cx + nx * R * 3 - px * L / 2, cy + ny * R * 3 - py * L / 2);
-  c.closePath();
 }
 
 function makeSprite(types, variant) {
@@ -218,21 +194,6 @@ function makeSprite(types, variant) {
   c.clip();
 
   paintTerrain(c, types[0], cx, cy, R, w, h, rand);
-
-  if (types[1]) {
-    const shape = makeRng(hashString(comboKey(types) + ':lobe:' + variant) || 11);
-    c.save();
-    lobePath(c, cx, cy, R, shape);
-    c.clip();
-    paintTerrain(c, types[1], cx, cy, R, w, h, rand);
-    c.restore();
-    // A seam so the two terrains read as one tile rather than two.
-    const seam = makeRng(hashString(comboKey(types) + ':lobe:' + variant) || 11);
-    lobePath(c, cx, cy, R, seam);
-    c.lineWidth = 4;
-    c.strokeStyle = 'rgba(12,18,24,0.42)';
-    c.stroke();
-  }
 
   // Inner shading so tiles read as separate pieces.
   const vig = c.createRadialGradient(cx, cy, R * 0.55, cx, cy, R * 1.05);
@@ -416,6 +377,7 @@ const state = {
   tokens: new Map(),    // "player:animal" -> { player, animal, at }
   tokenAt: new Map(),   // "q,r" -> token
   scores: [],
+  pending: null,        // a tile dropped but not yet confirmed
   sel: null,            // { animal, onBoard, spots:Set, canReturn }
   ready: {},            // animal -> is its next action available right now
   tokenDrag: null,      // { animal, x, y, from }
@@ -451,14 +413,21 @@ function safeBottom() {
 
 function buildDeck() {
   const deck = [];
+  const spin = () => Math.floor(Math.random() * 6);
   for (const type of TYPE_KEYS) {
     for (let i = 0; i < COPIES_PER_TYPE; i++) {
-      deck.push({ types: [type], variant: Math.floor(Math.random() * VARIANTS) });
+      deck.push({
+        types: [type], variant: Math.floor(Math.random() * VARIANTS),
+        rot: spin(), sides: 0,
+      });
     }
   }
   for (const mix of MIXES) {
     for (let i = 0; i < COPIES_PER_MIX; i++) {
-      deck.push({ types: mix.slice(), variant: Math.floor(Math.random() * VARIANTS) });
+      deck.push({
+        types: mix.slice(), variant: Math.floor(Math.random() * VARIANTS),
+        rot: spin(), sides: SIDE_SPLITS[Math.floor(Math.random() * SIDE_SPLITS.length)],
+      });
     }
   }
   // Fisher-Yates.
@@ -482,6 +451,7 @@ function startGame(players) {
   state.camera = { x: 0, y: 0, scale: 1 };
   state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
+  state.pending = null;
   state.tokenDrag = null;
   flashes.length = 0;
   initTokens();
@@ -500,6 +470,8 @@ function drawTile() {
   state.held = {
     types: card.types,
     variant: card.variant,
+    rot: card.rot,
+    sides: card.sides,
     x: home.x,
     y: home.y,
     dragging: false,
@@ -529,22 +501,26 @@ function recomputeValid() {
 
 function isValidTarget(q, r) {
   if (state.board.has(key(q, r))) return false;
+  if (state.pending && state.pending.q === q && state.pending.r === r) return false;
   if (state.board.size === 0) return true;
   return state.valid.has(key(q, r));
 }
 
-function placeTile(q, r) {
-  const held = state.held;
+function placeTile(q, r, tile) {
+  const held = tile || state.held;
   state.board.set(key(q, r), {
     q, r,
     types: held.types,
     variant: held.variant,
+    rot: held.rot,
+    sides: held.sides,
     owner: state.current,
     placedAt: performance.now(),
   });
   for (const type of held.types) state.placedCount[type]++;
   state.lastPlaced = key(q, r);
   state.held = null;
+  state.pending = null;
   state.turn.tileLaid = true;
   // New land can open or close animal moves, so recheck the cards.
   refreshReady();
@@ -569,10 +545,46 @@ function spendAnimalMove() {
 function endTurn() {
   state.turn = { tileLaid: false, animalMoved: false };
   state.sel = null;
+  state.pending = null;
   state.tokenDrag = null;
   state.current = (state.current + 1) % state.players;
   if (!state.deck.length) endGame();
   else drawTile();
+}
+
+/* A dropped tile waits for confirmation, so it can be turned first. It is not
+ * on the board yet and does not count for any animal layout until confirmed. */
+function setPending(q, r) {
+  const h = state.held;
+  state.pending = { q, r, types: h.types, variant: h.variant, rot: h.rot, sides: h.sides };
+  state.held = null;
+  state.hoverKey = null;
+  showHint(h.types.length > 1 ? 'Turn it if you like, then confirm' : 'Confirm to lay it', 2600);
+}
+
+function cancelPending() {
+  const p = state.pending;
+  if (!p) return;
+  const home = heldHome();
+  state.held = {
+    types: p.types, variant: p.variant, rot: p.rot, sides: p.sides,
+    x: home.x, y: home.y, dragging: false, grabDX: 0, grabDY: 0,
+    bornAt: performance.now(), returning: null,
+  };
+  state.pending = null;
+}
+
+function confirmPending() {
+  const p = state.pending;
+  if (!p) return;
+  placeTile(p.q, p.r, p);
+}
+
+function rotateTile(dir) {
+  const tile = state.pending || state.held;
+  if (!tile) return false;
+  tile.rot = ((tile.rot || 0) + dir + 6) % 6;
+  return true;
 }
 
 function endGame() {
@@ -798,14 +810,66 @@ function drawBackground() {
   ctx.restore();
 }
 
-function drawSprite(types, variant, cx, cy, size, alpha) {
-  const sp = sprites[comboKey(types)][variant % VARIANTS];
+function drawTerrain(c, type, variant, size) {
+  const sp = sprites[type][variant % VARIANTS];
   const scale = size / SPRITE_R;
-  const w = sp.width * scale;
-  const h = sp.height * scale;
-  if (alpha != null) ctx.globalAlpha = alpha;
-  ctx.drawImage(sp, cx - w / 2, cy - h / 2, w, h);
-  ctx.globalAlpha = 1;
+  c.drawImage(sp, -sp.width * scale / 2, -sp.height * scale / 2,
+    sp.width * scale, sp.height * scale);
+}
+
+/* The boundary between two terrains runs from the centre out to a corner, so
+ * every one of the six sides belongs wholly to one terrain or the other. The
+ * line bows a little on the way out so a shoreline does not look like a pie
+ * chart. */
+function radialEdge(c, size, corner, bowDeg, toCentre) {
+  const a = (Math.PI / 180) * 60 * corner;
+  const ca = a + (Math.PI / 180) * bowDeg;
+  const ctrl = [size * 0.58 * Math.cos(ca), size * 0.58 * Math.sin(ca)];
+  if (toCentre) c.quadraticCurveTo(ctrl[0], ctrl[1], 0, 0);
+  else c.quadraticCurveTo(ctrl[0], ctrl[1], size * Math.cos(a), size * Math.sin(a));
+}
+
+// The wedge owning `sides` consecutive sides, starting at corner 0.
+function sidePath(c, size, sides) {
+  const pts = hexCorners(0, 0, size);
+  c.beginPath();
+  c.moveTo(0, 0);
+  radialEdge(c, size, 0, -10, false);
+  for (let i = 1; i <= sides; i++) c.lineTo(pts[i % 6][0], pts[i % 6][1]);
+  radialEdge(c, size, sides % 6, 10, true);
+  c.closePath();
+}
+
+/* Draw a whole tile: its terrain, the sides the second terrain owns, and the
+ * seam between them, all turned to the tile's rotation. */
+function drawTileArt(c, tile, cx, cy, size, alpha) {
+  const rot = (tile.rot || 0) % 6;
+  c.save();
+  if (alpha != null) c.globalAlpha = alpha;
+  c.translate(cx, cy);
+  c.rotate((Math.PI / 3) * rot);
+  drawTerrain(c, tile.types[0], tile.variant, size);
+
+  if (tile.types[1]) {
+    const sides = tile.sides || 2;
+    c.save();
+    sidePath(c, size * 1.02, sides);
+    c.clip();
+    drawTerrain(c, tile.types[1], tile.variant, size);
+    c.restore();
+
+    // Seam: only the two radial edges, not the rim.
+    c.beginPath();
+    c.moveTo(0, 0);
+    radialEdge(c, size, 0, -10, false);
+    c.moveTo(0, 0);
+    radialEdge(c, size, sides % 6, 10, false);
+    c.lineWidth = Math.max(1.2, size * 0.045);
+    c.strokeStyle = 'rgba(12,18,24,0.5)';
+    c.stroke();
+  }
+  c.restore();
+  c.globalAlpha = 1;
 }
 
 function drawBoard(now) {
@@ -823,7 +887,7 @@ function drawBoard(now) {
     ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = size * 0.18;
     ctx.shadowOffsetY = size * 0.06;
-    drawSprite(tile.types, tile.variant, s.x, s.y, size * grow);
+    drawTileArt(ctx, tile, s.x, s.y, size * grow);
     ctx.restore();
 
     // Mixed tiles carry a pip per terrain, so the rule stays readable even
@@ -1002,14 +1066,14 @@ function drawHeld(now) {
     const [q, r] = state.hoverKey.split(',').map(Number);
     const p = hexToPixel(q, r, HEX_SIZE);
     const s = worldToScreen(p.x, p.y);
-    drawSprite(held.types, held.variant, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
+    drawTileArt(ctx, held, s.x, s.y, HEX_SIZE * state.camera.scale, 0.55);
   }
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.5)';
   ctx.shadowBlur = held.dragging ? 26 : 14;
   ctx.shadowOffsetY = held.dragging ? 12 : 5;
-  drawSprite(held.types, held.variant, held.x, held.y + bob, size);
+  drawTileArt(ctx, held, held.x, held.y + bob, size);
   ctx.restore();
   if (held.types.length > 1) drawTypePips(held.types, held.x, held.y + bob, size);
 
@@ -1267,9 +1331,17 @@ function drawTurnRow(now, lay) {
 
   // Deck and the tile drawn for this turn, on the left.
   drawDeck(now);
-  if (!state.turn.tileLaid) {
+  if (!state.turn.tileLaid && !state.pending) {
     drawHeld(now);
     pushHit('tile', 4, lay.rowY, heldHome().x + HAND_TILE + 8, lay.rowH);
+  } else if (state.pending) {
+    const h = heldHome();
+    traceHex(ctx, h.x, h.y, HAND_TILE * 0.86);
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(160,235,255,0.55)';
+    ctx.stroke();
+    ctx.setLineDash([]);
   } else {
     // Tile spent: a quiet marker where it sat.
     const h = heldHome();
@@ -1292,9 +1364,9 @@ function drawTurnRow(now, lay) {
     ctx.textAlign = 'left';
     ctx.font = font('600 11.5px');
     ctx.fillStyle = 'rgba(147,166,181,0.92)';
-    const msg = !state.turn.tileLaid
-      ? 'Play the tile'
-      : (state.turn.animalMoved ? 'Turn done' : 'Animal optional');
+    const msg = state.pending ? 'Confirm your tile'
+      : (!state.turn.tileLaid ? 'Play the tile'
+        : (state.turn.animalMoved ? 'Turn done' : 'Animal optional'));
     wrapText(msg, textX, cy - 3, textW, 13);
   }
 
@@ -1378,6 +1450,97 @@ function drawHand(now) {
   });
 }
 
+/* Where the confirm cluster sits: under the pending tile, nudged to stay on
+ * screen and clear of the hand. */
+function pendingLayout() {
+  const p = state.pending;
+  if (!p) return null;
+  const pt = hexToPixel(p.q, p.r, HEX_SIZE);
+  const s = worldToScreen(pt.x, pt.y);
+  const size = HEX_SIZE * state.camera.scale;
+  const canTurn = p.types.length > 1;
+  const rotW = 40, gap = 7, backW = 64, okW = 92, h = 38;
+  const total = (canTurn ? (rotW + gap) * 2 : 0) + backW + gap + okW;
+  let x = Math.max(8, Math.min(W - 8 - total, s.x - total / 2));
+  const lowest = trayTop() - h - 10;
+  let y = s.y + size * 0.92 + 8;
+  if (y > lowest) y = s.y - size * 0.92 - 8 - h;      // flip above the tile
+  y = Math.max(58, Math.min(lowest, y));
+  return { x, y, h, rotW, backW, okW, gap, total, canTurn, sx: s.x, sy: s.y, size };
+}
+
+function drawRotIcon(cx, cy, r, dir, color) {
+  const a0 = -Math.PI * 0.78, a1 = Math.PI * 0.5;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (dir > 0) ctx.arc(cx, cy, r, a0, a1);
+  else ctx.arc(cx, cy, r, Math.PI - a1, Math.PI - a0);
+  ctx.stroke();
+  const ha = dir > 0 ? a1 : Math.PI - a1;
+  const hx = cx + Math.cos(ha) * r, hy = cy + Math.sin(ha) * r;
+  const tang = ha + (dir > 0 ? Math.PI / 2 : -Math.PI / 2);
+  ctx.beginPath();
+  ctx.moveTo(hx + Math.cos(tang) * 7.5, hy + Math.sin(tang) * 7.5);
+  ctx.lineTo(hx + Math.cos(tang + 2.45) * 7.5, hy + Math.sin(tang + 2.45) * 7.5);
+  ctx.lineTo(hx + Math.cos(tang - 2.45) * 7.5, hy + Math.sin(tang - 2.45) * 7.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPendingTile(now) {
+  const p = state.pending;
+  if (!p) return;
+  const pt = hexToPixel(p.q, p.r, HEX_SIZE);
+  const s = worldToScreen(pt.x, pt.y);
+  const size = HEX_SIZE * state.camera.scale;
+  const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = size * 0.35;
+  ctx.shadowOffsetY = size * 0.1;
+  drawTileArt(ctx, p, s.x, s.y, size, 0.92);
+  ctx.restore();
+  if (p.types.length > 1) drawTypePips(p.types, s.x, s.y, size);
+
+  ctx.save();
+  ctx.setLineDash([size * 0.2, size * 0.14]);
+  ctx.lineWidth = Math.max(2.5, size * 0.075);
+  ctx.strokeStyle = `rgba(160,235,255,${0.55 + pulse * 0.45})`;
+  traceHex(ctx, s.x, s.y, size * 1.02);
+  ctx.stroke();
+  ctx.restore();
+  pushHit('pendingtile', s.x - size, s.y - size, size * 2, size * 2);
+}
+
+function drawPendingControls() {
+  const lay = pendingLayout();
+  if (!lay) return;
+  let x = lay.x;
+
+  if (lay.canTurn) {
+    for (const [id, dir] of [['rotccw', -1], ['rotcw', 1]]) {
+      roundRect(x, lay.y, lay.rotW, lay.h, lay.h / 2);
+      ctx.fillStyle = 'rgba(23,34,45,0.95)';
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.stroke();
+      drawRotIcon(x + lay.rotW / 2, lay.y + lay.h / 2, 10, dir, '#eaf1f6');
+      pushHit(id, x, lay.y, lay.rotW, lay.h);
+      x += lay.rotW + lay.gap;
+    }
+  }
+  drawButton('back', 'Back', x, lay.y, lay.backW, lay.h, 'ghost');
+  x += lay.backW + lay.gap;
+  drawButton('confirm', 'Confirm', x, lay.y, lay.okW, lay.h, 'go');
+}
+
 function drawDraggedToken(now) {
   const d = state.tokenDrag;
   if (!d) return;
@@ -1397,7 +1560,9 @@ function render(now) {
     drawFlashes(now);
   }
   if (state.mode === 'playing') {
+    drawPendingTile(now);
     drawHand(now);
+    drawPendingControls();
     drawDraggedToken(now);
   }
   requestAnimationFrame(render);
@@ -1424,9 +1589,29 @@ function pointInDeck(x, y) {
 
 let press = null;   // the pointer gesture in progress, for tap detection
 
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* The right mouse button turns the tile. It has to be wired to mousedown:
+ * a browser only fires pointerdown for the first button pressed, so a right
+ * click during a left button drag never arrives as one. */
+canvas.addEventListener('mousedown', (e) => {
+  if (state.mode !== 'playing' || e.button !== 2) return;
+  if (rotateTile(1)) e.preventDefault();
+});
+
 canvas.addEventListener('pointerdown', (e) => {
   if (state.mode !== 'playing') return;
-  canvas.setPointerCapture(e.pointerId);
+  if (e.pointerType === 'mouse' && e.button !== 0) return;   // handled above
+
+  // A second finger while dragging turns the tile rather than pinching.
+  if (state.held && state.held.dragging && pointers.size >= 1) {
+    rotateTile(1);
+    return;
+  }
+
+  // Capture keeps a drag alive off the edge of the canvas, but a stray event
+  // must not be allowed to throw and abandon the rest of this handler.
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* not a live pointer */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (pointers.size === 2) {
@@ -1442,6 +1627,7 @@ canvas.addEventListener('pointerdown', (e) => {
     press.hit = hit;
     if (hit.id === 'card') beginCardPress(hit.data, e);
     else if (hit.id === 'tile') beginTilePress(e);
+    else if (hit.id === 'pendingtile') beginPendingDrag(e);
     return;
   }
 
@@ -1471,6 +1657,20 @@ function beginTilePress(e) {
   held.grabDY = pointInDeck(e.clientX, e.clientY) ? -HAND_TILE * 0.7 : 0;
   held.x = e.clientX + held.grabDX;
   held.y = e.clientY + held.grabDY;
+  updateHover();
+  hideHint();
+}
+
+// Picking a waiting tile back up puts it in hand, still turned as you left it.
+function beginPendingDrag(e) {
+  const p = state.pending;
+  if (!p) return;
+  state.held = {
+    types: p.types, variant: p.variant, rot: p.rot, sides: p.sides,
+    x: e.clientX, y: e.clientY, dragging: true, pointerId: e.pointerId,
+    grabDX: 0, grabDY: 0, bornAt: performance.now(), returning: null,
+  };
+  state.pending = null;
   updateHover();
   hideHint();
 }
@@ -1539,6 +1739,16 @@ function fireButton(hit, e) {
     endTurn();
   } else if (hit.id === 'return' && state.sel && state.sel.canReturn && !state.turn.animalMoved) {
     doReturnToken(state.sel.animal);
+  } else if (hit.id === 'confirm') {
+    hideHint();
+    confirmPending();
+  } else if (hit.id === 'back') {
+    hideHint();
+    cancelPending();
+  } else if (hit.id === 'rotcw') {
+    rotateTile(1);
+  } else if (hit.id === 'rotccw') {
+    rotateTile(-1);
   }
 }
 
@@ -1592,7 +1802,7 @@ function endPointer(e) {
     const h = hexAtScreen(held.x, held.y);
     const overUi = held.y > trayTop();
     if (!overUi && isValidTarget(h.q, h.r)) {
-      placeTile(h.q, h.r);
+      setPending(h.q, h.r);
     } else {
       returnHeld();
     }
@@ -1739,7 +1949,8 @@ function buildLegend(el, counts) {
     cv.width = 104;
     cv.height = 90;
     const c = cv.getContext('2d');
-    c.drawImage(sprites[comboKey([type])][0], 0, 0, cv.width, cv.height);
+    drawTileArt(c, { types: [type], variant: 0, rot: 0, sides: 0 },
+      cv.width / 2, cv.height / 2, cv.width * 0.46);
     item.appendChild(cv);
     const label = document.createElement('span');
     label.textContent = TYPES[type].name;
@@ -1766,7 +1977,8 @@ function buildMixedRow() {
     cv.width = 104;
     cv.height = 90;
     const c = cv.getContext('2d');
-    c.drawImage(sprites[comboKey(mix)][0], 0, 0, cv.width, cv.height);
+    drawTileArt(c, { types: mix, variant: 0, rot: 4, sides: 2 },
+      cv.width / 2, cv.height / 2, cv.width * 0.46);
     // The same pips the board draws.
     const pr = 6.5, gap = pr * 2.4, py = 17;
     c.beginPath();
@@ -1897,6 +2109,7 @@ document.getElementById('menuBtn').addEventListener('click', showTitle);
 window.__state = state;
 window.__version = VERSION;
 window.__lay = handLayout;
+window.__pendLay = pendingLayout;
 window.__debug = {
   placeTile, isValidTarget, hexToPixel, HEX_SIZE, endTurn,
   selectAnimal, placementSpots, moveSpots, canReturn, myToken, refreshReady,
