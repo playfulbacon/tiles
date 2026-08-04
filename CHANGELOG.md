@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.1 — quieter cards and board
+
+- The player marker on each tile is now an option, **off by default**, and the
+  choice is remembered between games.
+- Cards no longer carry an early, mid or late marker: the tier bar is gone from
+  the rail, the tier name is gone from the card detail, and requirement hexes in
+  the layout diagrams are a neutral tone rather than tier coloured. The tiers
+  still run the game, they are simply not labelled during play.
+- A visible hint now follows the hand as the shelf and card detail come and go,
+  instead of being placed once and left behind.
+
 ## v0.8.0 — a bag to draw from, and special tiles
 
 - **Mixed tiles are gone.** Every tile carries one terrain again.

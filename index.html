@@ -6,7 +6,7 @@
 <title>Hex Lands</title>
 <meta name="description" content="A turn-based hex tile laying game. Lay the land, then send your animals out into it." />
 <meta name="theme-color" content="#101820" />
-<link rel="stylesheet" href="styles.css?v=0.8.0" />
+<link rel="stylesheet" href="styles.css?v=0.8.1" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolygon points='75,50 62.5,71.65 37.5,71.65 25,50 37.5,28.35 62.5,28.35' fill='%234f9d3a' stroke='%23101820' stroke-width='6'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -52,6 +52,13 @@
       <h2 class="label">Tiles to choose from</h2>
       <div class="player-picker" id="drawPicker"></div>
 
+      <h2 class="label">Options</h2>
+      <label class="toggle">
+        <input type="checkbox" id="ownerToggle" />
+        <span class="track"><span class="knob"></span></span>
+        <span>Mark each tile with who laid it</span>
+      </label>
+
       <button id="startBtn" class="primary-btn">Start Game</button>
 
       <p class="howto">
@@ -86,7 +93,7 @@
     </div>
   </div>
 
-  <script src="animals.js?v=0.8.0"></script>
-  <script src="game.js?v=0.8.0"></script>
+  <script src="animals.js?v=0.8.1"></script>
+  <script src="game.js?v=0.8.1"></script>
 </body>
 </html>

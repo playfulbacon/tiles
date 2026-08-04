@@ -4,7 +4,7 @@ A turn-based hex tile laying game that runs entirely in the browser — no build
 step, no dependencies. Players take turns drawing a tile from a shuffled deck
 and dragging it onto the board to grow a shared landscape.
 
-**Current version: v0.8.0**
+**Current version: v0.8.1**
 
 ## How to play
 
@@ -71,10 +71,17 @@ The game ends when the deck runs out; highest score wins.
 Pan the board by dragging the background. Zoom with the scroll wheel or a
 two-finger pinch.
 
+### Options
+
+**Mark each tile with who laid it** puts a dot in each player's colour on every
+tile they place. It is **off by default** — the land reads more like landscape
+without it — and the setting is remembered between games.
+
 ## The ladder
 
 Animals belong to an **early**, **mid** or **late** tier, and points climb with
-the tier. Cards that call for another animal name a **specific** one, chosen so
+the tier. The tier is not marked on the cards during play: what a card needs is
+written on it, so the ladder is felt rather than labelled. Cards that call for another animal name a **specific** one, chosen so
 the pairing reads true — a loon needs a fish to dive for, a bear a fish to
 catch, and a loon leaves the nest when a bear reaches the shore.
 

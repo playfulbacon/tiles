@@ -1,7 +1,7 @@
 /* Hex Lands - a turn based hex tile laying game.
  * Draw a tile from the deck, drag it onto the board, connect it to the land. */
 
-const VERSION = '0.8.0';
+const VERSION = '0.8.1';
 
 /* ------------------------------------------------------------------ *
  * Tile types
@@ -377,6 +377,7 @@ const state = {
   tokens: new Map(),    // "player:animal" -> { player, animal, at }
   tokenAt: new Map(),   // "q,r" -> token
   scores: [],
+  showOwners: false,    // mark each tile with the colour of who laid it
   choices: [],          // tiles drawn from the bag this turn, one to be kept
   drawCount: 3,         // how many come out of the bag each turn
   pending: null,        // a tile dropped but not yet confirmed
@@ -975,8 +976,8 @@ function drawBoard(now) {
     // when the art is small or the terrains look alike at a glance.
     if (tile.types.length > 1) drawTypePips(tile.types, s.x, s.y, size);
 
-    // Owner pip.
-    if (state.players > 1) {
+    // Owner pip: who laid this tile. Off unless asked for.
+    if (state.showOwners && state.players > 1) {
       const pr = Math.max(3.5, size * 0.115);
       const py = s.y + size * 0.58;
       ctx.beginPath();
@@ -1342,9 +1343,9 @@ function drawPatternDiagram(cx, cy, cells, s, color, animal) {
       ctx.lineWidth = 1.6;
       ctx.stroke();
     } else {
-      // An animal requirement, tinted by the tier it belongs to.
-      const tint = req.token ? TIERS[ANIMALS[req.token].tier].color
-        : (req.tier ? TIERS[req.tier].color : '#c9d9e6');
+      // An animal requirement. The glyph says which animal, so the cell needs
+      // no colour coding of its own.
+      const tint = '#c9d9e6';
       ctx.fillStyle = '#1d2833';
       ctx.fill();
       ctx.setLineDash([2.5, 2.5]);
@@ -1379,13 +1380,9 @@ function drawCardDetail(now, animal, lay) {
   ctx.fillStyle = '#eaf1f6';
   ctx.fillText(a.name.toUpperCase(), x + 14, y + 20);
   const nameW = ctx.measureText(a.name.toUpperCase()).width;
-  const tier = TIERS[a.tier];
-  ctx.font = font('800 9px');
-  ctx.fillStyle = tier.color;
-  ctx.fillText(tier.name.toUpperCase(), x + 20 + nameW, y + 20);
   ctx.font = font('500 11px');
   ctx.fillStyle = '#93a6b5';
-  ctx.fillText(a.blurb, x + 20 + nameW + ctx.measureText(tier.name.toUpperCase()).width + 12, y + 20);
+  ctx.fillText(a.blurb, x + 20 + nameW, y + 20);
 
   const half = w / 2;
   ctx.beginPath();
@@ -1544,19 +1541,10 @@ function drawHand(now) {
     ctx.strokeStyle = selected ? 'rgba(140,215,240,0.9)' : 'rgba(255,255,255,0.12)';
     ctx.stroke();
 
-    // Tier bar: short for early, full width for late.
-    const tier = TIERS[ANIMALS[animal].tier];
-    const barW = (lay.cw - 20) * (0.4 + 0.3 * tier.rank);
-    roundRect(x + 10, y + 6, barW, 3, 1.5);
-    ctx.fillStyle = tier.color;
-    ctx.globalAlpha = selected ? 1 : 0.75;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-
     const cx = x + lay.cw / 2;
     if (token.at) {
       // Piece is out on the land: show an empty slot on the card.
-      traceHex(ctx, cx, y + 26, 14);
+      traceHex(ctx, cx, y + 24, 15);
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.fill();
       ctx.setLineDash([3, 3]);
@@ -1564,9 +1552,9 @@ function drawHand(now) {
       ctx.strokeStyle = 'rgba(160,235,255,0.55)';
       ctx.stroke();
       ctx.setLineDash([]);
-      drawGlyph(ctx, animal, cx, y + 26, 19, 'rgba(200,220,235,0.30)');
+      drawGlyph(ctx, animal, cx, y + 24, 20, 'rgba(200,220,235,0.30)');
     } else {
-      drawToken(ctx, animal, cx, y + 26, 30, color, { shadow: false });
+      drawToken(ctx, animal, cx, y + 24, 32, color, { shadow: false });
     }
 
     ctx.textAlign = 'center';
@@ -1701,6 +1689,9 @@ function drawDraggedToken(now) {
 
 function render(now) {
   hits = [];
+  // The hand grows and shrinks as the shelf and card detail come and go, so a
+  // visible hint follows it rather than being placed once and left behind.
+  if (!hintEl.classList.contains('hidden')) positionHint();
   drawBackground();
   if (state.mode === 'playing' || state.mode === 'gameover') {
     drawBoard(now);
@@ -2165,6 +2156,23 @@ function buildSpecialRow() {
   }
 }
 
+/* Display options live in localStorage, so a preference survives a refresh
+ * rather than needing setting every game. */
+const OWNERS_KEY = 'hexlands-show-owners';
+
+function buildOptions() {
+  const box = document.getElementById('ownerToggle');
+  if (!box) return;
+  let saved = null;
+  try { saved = localStorage.getItem(OWNERS_KEY); } catch (err) { /* private mode */ }
+  state.showOwners = saved === 'on';
+  box.checked = state.showOwners;
+  box.addEventListener('change', () => {
+    state.showOwners = box.checked;
+    try { localStorage.setItem(OWNERS_KEY, box.checked ? 'on' : 'off'); } catch (err) { /* ignore */ }
+  });
+}
+
 function buildDrawPicker() {
   const wrap = document.getElementById('drawPicker');
   if (!wrap) return;
@@ -2276,6 +2284,7 @@ buildPlayerPicker();
 buildLegend(document.getElementById('legend'), null);
 buildSpecialRow();
 buildDrawPicker();
+buildOptions();
 buildAnimalRow();
 
 for (const id of ['hudVersion', 'titleVersion', 'overVersion']) {
